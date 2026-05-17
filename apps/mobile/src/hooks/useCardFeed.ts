@@ -114,7 +114,15 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
         const batch = await fetchBatch(feedAtStart, REFILL_BATCH);
         // Discard if the user switched feeds mid-flight.
         if (activeFeed.current !== feedAtStart) return;
-        setCards((prev) => [...prev, ...batch]);
+        // Dedup by articleId — the server may return a card that's
+        // already in our buffer (trending in particular, since the
+        // most-read pool repeats). Without this the user sees the same
+        // article twice on consecutive swipes.
+        setCards((prev) => {
+          const seen = new Set(prev.map((c) => c.articleId));
+          const fresh = batch.filter((c) => !seen.has(c.articleId));
+          return fresh.length > 0 ? [...prev, ...fresh] : prev;
+        });
       } catch {
         // Quiet failure — user still has the current buffer. Next swipe
         // will trigger another refill attempt.

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { and, desc, eq } from 'drizzle-orm';
 import { cardBatchResponseSchema, type Card, type WikiSummary } from '@knowra/shared';
-import { events, getDb } from '@knowra/db';
+import { articles, events, getDb } from '@knowra/db';
 import { fetchMostReadSummaries, summaryToCard } from '@/lib/wikipedia';
 
 export const runtime = 'nodejs';
@@ -15,22 +15,31 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
+// Returns wiki page ids the device has impressed in the last SEEN_LOOKBACK
+// events. Joins events → articles because events store the local article
+// id (bigint) but Wikipedia summaries are keyed by pageid (string).
 async function fetchSeenWikiIds(deviceId: string): Promise<Set<string>> {
   const db = getDb();
   const rows = await db
-    .select({ articleId: events.articleId })
+    .select({ wikiId: articles.wikiId })
     .from(events)
+    .innerJoin(articles, eq(events.articleId, articles.id))
     .where(and(eq(events.deviceId, deviceId), eq(events.eventType, 'impression')))
     .orderBy(desc(events.occurredAt))
     .limit(SEEN_LOOKBACK);
-  // Events store local article IDs, not wiki page ids — but we want to
-  // dedupe by wiki page id. Cheap workaround: also dedupe within this
-  // request and use the seen set as a "soft" filter (it's empty when the
-  // device has no impressions, which is the only case where dedupe matters
-  // for trending — repeat calls).
-  // For now, treat the impression set as opaque; the in-request dedupe
-  // below covers the practical case (refill returning the same articles).
-  return new Set(rows.map((r) => String(r.articleId)));
+  return new Set(rows.map((r) => r.wikiId));
+}
+
+// Fisher-Yates shuffle. Keeps trending varied even when the impression
+// dedup hasn't filtered enough — without this, the deterministic Wikipedia
+// ranking returns the same head over and over.
+function shuffle<T>(arr: T[]): T[] {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 // Wikipedia's "most read" list is ranked AND deterministic per day — the
@@ -88,10 +97,11 @@ export async function GET(request: Request) {
     candidates = pool.filter((s) => !seenByDevice.has(String(s.pageid)));
   }
 
-  // If filtering ate the whole pool (rare — device has seen 50+ trending),
-  // fall back to the unfiltered ranked pool so trending always returns
-  // something rather than 502.
-  const chosen = (candidates.length > 0 ? candidates : pool).slice(0, count);
+  // Shuffle within the fresh pool so repeat calls don't return the same
+  // top-N of yesterday's deterministic ranking. We still prefer the freshest
+  // candidates over the unfiltered ranked pool — if every fresh article is
+  // exhausted, fall back to a shuffle of the whole pool rather than 502.
+  const chosen = (candidates.length > 0 ? shuffle(candidates) : shuffle(pool)).slice(0, count);
 
   if (chosen.length === 0) {
     return NextResponse.json(

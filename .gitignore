@@ -45,6 +45,11 @@ android/
 google-services.json
 GoogleService-Info.plist
 
+# EAS / store submission credentials
+apps/mobile/credentials/
+*.p8
+*.p12
+
 # Drizzle
 drizzle/
 
