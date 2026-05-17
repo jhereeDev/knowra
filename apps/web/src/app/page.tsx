@@ -68,6 +68,9 @@ export default function HomePage() {
           <a href="/terms" className="hover:text-knowverse-star/70">
             Terms
           </a>
+          <a href="/support" className="hover:text-knowverse-star/70">
+            Support
+          </a>
           <Link href="/about" className="hover:text-knowverse-star/70">
             How we use Wikipedia
           </Link>
