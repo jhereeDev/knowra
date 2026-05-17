@@ -31,11 +31,15 @@ StartLimitBurst=10
 StartLimitIntervalSec=60
 
 # Modest hardening — don't let the service write outside its dir.
+# ProtectHome is intentionally `false`: corepack (the shim that resolves
+# `pnpm` to the right version) stores the pnpm binary under
+# /home/knowra/.cache/node/corepack and blowing access to /home blocks
+# the service from starting. The rest of the hardening still applies.
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=false
 PrivateTmp=true
-ReadWritePaths=/opt/knowra /var/log/knowra
+ReadWritePaths=/opt/knowra /var/log/knowra /home/knowra
 
 StandardOutput=append:/var/log/knowra/web.log
 StandardError=append:/var/log/knowra/web.err.log
