@@ -164,11 +164,16 @@ export function ArticleReader({
             <WebView
               source={{ uri: mobileUrl }}
               originWhitelist={['https://*']}
-              decelerationRate="normal"
               injectedJavaScriptBeforeContentLoaded={INJECTED_BEFORE}
               onLoadEnd={() => setLoading(false)}
               style={{ backgroundColor: '#05071a' }}
               startInLoadingState={false}
+              // No `decelerationRate` here — it's an iOS-only prop, and on
+              // Android with Fabric/New Architecture the codegen types it
+              // as a Float. Passing the string "normal" or "fast" crashes
+              // the view creation with `java.lang.String cannot be cast
+              // to java.lang.Double` (this exact error surfaced when users
+              // tapped Open on an Android device).
             />
             {loading && (
               <View

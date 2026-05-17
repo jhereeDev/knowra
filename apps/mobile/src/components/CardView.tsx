@@ -1,14 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Linking,
   Pressable,
   ScrollView,
   Share,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
-import type { StyleProp, TextStyle, ViewProps, ViewStyle } from 'react-native';
+import type { LayoutChangeEvent, StyleProp, TextStyle, ViewProps, ViewStyle } from 'react-native';
 import { Image as RawExpoImage, type ImageProps as ExpoImageProps } from 'expo-image';
 import { LinearGradient as RawLinearGradient } from 'expo-linear-gradient';
 import Animated, { type AnimatedProps, useAnimatedStyle } from 'react-native-reanimated';
@@ -71,9 +70,29 @@ export function CardView({
   // related cards into the feed via this callback.
   onInjectRelated?: (cards: Card[]) => number;
 }) {
-  const { width, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const imageHeight = screenHeight * IMAGE_HEIGHT_FRACTION;
+  // Track image-load failures per-card so we can fall back to the
+  // no-image placeholder. expo-image's `onError` fires on 404s,
+  // network errors, and unsupported formats. VerticalPager remounts
+  // CardView on every card change (slot keyed by articleId), so this
+  // state naturally resets per card — no reset effect needed.
+  const [imageFailed, setImageFailed] = useState(false);
+
+  // Measure the actual card size with onLayout, then use absolute pixel
+  // values for everything inside. Fabric's setProperty crashes with
+  // "java.lang.String cannot be cast to java.lang.Double" if a native
+  // component receives a percentage string in a typed Float prop slot
+  // (expo-linear-gradient + expo-image are typed strictly under the
+  // new architecture). useWindowDimensions also lies on Android tablet
+  // compatibility mode, so onLayout is the only reliable source.
+  const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
+  const onCardLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width: w, height: h } = e.nativeEvent.layout;
+    setCardSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+  }, []);
+  const heroHeight = cardSize.height * IMAGE_HEIGHT_FRACTION;
+  const heroOverdrawHeight = heroHeight * 1.15;
+  const gradientHeight = heroHeight * 0.75;
 
   const savedIds = useSavedIds();
   const isSaved = savedIds.has(card.articleId);
@@ -123,36 +142,59 @@ export function CardView({
   };
 
   return (
-    <View className="flex-1 bg-knowverse-deep">
+    <View className="flex-1 bg-knowverse-deep" onLayout={onCardLayout}>
+      {/* Wait for first measure before rendering native children — that
+          way every width/height handed to expo-image / LinearGradient
+          is a real pixel number, never a percentage string. */}
+      {cardSize.height === 0 ? null : (
+        <>
       {/* ---------- Hero image + gradient + title overlay ---------- */}
       <View
-        style={{ width, height: imageHeight, position: 'relative', overflow: 'hidden' }}
+        style={{
+          width: cardSize.width,
+          height: heroHeight,
+          position: 'relative',
+          overflow: 'hidden',
+        }}
       >
-        {card.image ? (
-          <AnimatedView style={parallaxStyle}>
-            <Image
-              source={{ uri: card.image.url }}
-              recyclingKey={card.articleId}
-              style={{
-                width,
-                // Extra height so the parallax translate doesn't reveal
-                // the background. The hero box clips with overflow:hidden.
-                height: imageHeight * 1.15,
-                backgroundColor: card.image.dominantColor ?? '#0a0e27',
-              }}
-              placeholder={card.image.dominantColor ? { uri: undefined } : undefined}
-              contentFit="cover"
-              transition={250}
-              accessibilityLabel={card.title}
-            />
-          </AnimatedView>
+        {card.image && !imageFailed ? (
+          // Two-layer: outer View carries the size, inner AnimatedView only
+          // applies the parallax transform. Keeps Reanimated styles purely
+          // numeric so the Android Fabric bridge doesn't choke on a string.
+          <View style={{ width: cardSize.width, height: heroOverdrawHeight }}>
+            <AnimatedView style={[{ flex: 1 }, parallaxStyle]}>
+              <Image
+                source={{ uri: card.image.url }}
+                recyclingKey={card.articleId}
+                style={{
+                  width: cardSize.width,
+                  height: heroOverdrawHeight,
+                  backgroundColor: card.image.dominantColor ?? '#0a0e27',
+                }}
+                placeholder={card.image.dominantColor ? { uri: undefined } : undefined}
+                contentFit="cover"
+                transition={250}
+                accessibilityLabel={card.title}
+                onError={() => setImageFailed(true)}
+              />
+            </AnimatedView>
+          </View>
         ) : (
-          // No image — gradient placeholder using a knowverse-tinted block
+          // Fallback placeholder — shown when card.image is null OR when
+          // the image failed to load. Uses dominant color if we have it,
+          // else the standard knowverse-tinted block.
           <View
-            style={{ width, height: imageHeight, backgroundColor: '#0a1234' }}
+            style={{
+              width: cardSize.width,
+              height: heroHeight,
+              backgroundColor: card.image?.dominantColor ?? '#0a1234',
+            }}
             className="items-center justify-center"
           >
-            <Feather name="image" size={36} color="rgba(231,233,255,0.18)" />
+            <Feather name="image" size={48} color="rgba(231,233,255,0.22)" />
+            <Text className="text-knowverse-star/35 mt-3 text-xs uppercase tracking-[2px]">
+              {imageFailed ? 'Image unavailable' : 'No image'}
+            </Text>
           </View>
         )}
 
@@ -165,7 +207,7 @@ export function CardView({
             left: 0,
             right: 0,
             bottom: 0,
-            height: imageHeight * 0.75,
+            height: gradientHeight,
           }}
           pointerEvents="none"
         />
@@ -173,13 +215,17 @@ export function CardView({
         {/* Wikipedia source attribution lives in the bottom divider —
             no top badge here (was overlapping the feed-tab chrome). */}
 
-        {/* Bottom-left: title + subtitle on the gradient */}
+        {/* Bottom-left: title + subtitle on the gradient.
+            maxWidth caps the title column on tablets — without it the
+            title can span 1000+ px of an iPad/wide-Android screen,
+            which breaks the visual rhythm of every other card. */}
         <View
           style={{
             position: 'absolute',
             left: 20,
             right: 88, // leave room for the right-edge action stack
             bottom: 18,
+            maxWidth: 560,
           }}
         >
           {/* Category chips — derived from the article's description.
@@ -219,6 +265,10 @@ export function CardView({
           paddingHorizontal: 24,
           paddingTop: 22,
           paddingBottom: insets.bottom + 32,
+          // Cap the reading column — 640px is comfortable for body text.
+          // Lets the card fill a tablet while keeping the hook readable.
+          width: Math.min(cardSize.width, 640),
+          alignSelf: 'center',
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -234,6 +284,8 @@ export function CardView({
           <View className="h-px flex-1 bg-knowverse-star/10" />
         </View>
       </ScrollView>
+        </>
+      )}
 
       {/* ---------- Right-edge action stack ---------- */}
       <View

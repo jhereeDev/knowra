@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useWindowDimensions, View } from 'react-native';
-import type { StyleProp, TextStyle } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View } from 'react-native';
+import type { LayoutChangeEvent, StyleProp, TextStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Feather as RawFeather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -73,7 +73,16 @@ export function VerticalPager<T>({
   canSwitchTabNext = true,
   canSwitchTabPrev = true,
 }: Props<T>) {
-  const { width, height } = useWindowDimensions();
+  // Measure the pager's actual rendered size via onLayout instead of
+  // useWindowDimensions — Android's tablet compatibility mode reports
+  // phone-sized window values even though the app renders full-screen,
+  // which leaves the slots short and lets the next card peek at the
+  // bottom. Layout measurement is always accurate.
+  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width: w, height: h } = e.nativeEvent.layout;
+    setSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+  }, []);
   const insets = useSafeAreaInsets();
   const translateY = useSharedValue(0);
   const translateX = useSharedValue(0);
@@ -258,7 +267,7 @@ export function VerticalPager<T>({
   return (
     <PagerContext.Provider value={{ translateY }}>
     <GestureDetector gesture={pan}>
-      <View style={{ flex: 1, overflow: 'hidden' }}>
+      <View style={{ flex: 1, overflow: 'hidden' }} onLayout={onLayout}>
         {/* Pull-to-refresh indicator. Sits above the card stack, hidden
             by default; opacity + rotation animate with the pull distance.
             pointerEvents:none so the pan gesture still hits the pager. */}

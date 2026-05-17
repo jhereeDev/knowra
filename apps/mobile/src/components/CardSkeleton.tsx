@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
-import { useWindowDimensions, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
 import Animated, {
   type AnimatedProps,
   useAnimatedStyle,
@@ -19,9 +20,12 @@ const AnimatedView = Animated.View as unknown as React.ComponentType<
 // only (no gradient sweep) — costs ~nothing and reads as "loading"
 // without being noisy.
 export function CardSkeleton() {
-  const { width, height } = useWindowDimensions();
-  const imageHeight = Math.min(width * 0.62, height * 0.45);
   const pulse = useSharedValue(0.4);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width: w, height: h } = e.nativeEvent.layout;
+    setSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+  }, []);
 
   useEffect(() => {
     pulse.value = withRepeat(
@@ -33,38 +37,62 @@ export function CardSkeleton() {
 
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
+  // Measure the container, then size everything in absolute pixels.
+  // Mirrors the real card layout (62% hero, capped 640px reading column)
+  // without any percentage strings touching Reanimated styles.
+  const heroHeight = size.height * 0.62;
+  const colWidth = Math.min(size.width, 640);
   return (
-    <View className="flex-1 bg-knowverse-deep">
-      <AnimatedView style={[{ width, height: imageHeight, backgroundColor: '#0a1234' }, pulseStyle]} />
-      <View className="px-6 pt-8">
-        <AnimatedView
-          style={[{ height: 30, width: width * 0.65, backgroundColor: '#0f1740', borderRadius: 6 }, pulseStyle]}
-        />
-        <AnimatedView
-          style={[
-            { height: 14, width: width * 0.35, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 14 },
-            pulseStyle,
-          ]}
-        />
-        <AnimatedView
-          style={[
-            { height: 14, width: width * 0.88, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 24 },
-            pulseStyle,
-          ]}
-        />
-        <AnimatedView
-          style={[
-            { height: 14, width: width * 0.82, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 8 },
-            pulseStyle,
-          ]}
-        />
-        <AnimatedView
-          style={[
-            { height: 14, width: width * 0.45, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 8 },
-            pulseStyle,
-          ]}
-        />
-      </View>
+    <View className="flex-1 bg-knowverse-deep" onLayout={onLayout}>
+      {size.height === 0 ? null : (
+        <>
+          <AnimatedView
+            style={[
+              { width: size.width, height: heroHeight, backgroundColor: '#0a1234' },
+              pulseStyle,
+            ]}
+          />
+          <View
+            style={{
+              paddingHorizontal: 24,
+              paddingTop: 32,
+              width: colWidth,
+              alignSelf: 'center',
+            }}
+          >
+            <AnimatedView
+              style={[
+                { height: 30, width: colWidth * 0.65, backgroundColor: '#0f1740', borderRadius: 6 },
+                pulseStyle,
+              ]}
+            />
+            <AnimatedView
+              style={[
+                { height: 14, width: colWidth * 0.35, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 14 },
+                pulseStyle,
+              ]}
+            />
+            <AnimatedView
+              style={[
+                { height: 14, width: colWidth * 0.88, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 24 },
+                pulseStyle,
+              ]}
+            />
+            <AnimatedView
+              style={[
+                { height: 14, width: colWidth * 0.82, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 8 },
+                pulseStyle,
+              ]}
+            />
+            <AnimatedView
+              style={[
+                { height: 14, width: colWidth * 0.45, backgroundColor: '#0c1233', borderRadius: 4, marginTop: 8 },
+                pulseStyle,
+              ]}
+            />
+          </View>
+        </>
+      )}
     </View>
   );
 }
