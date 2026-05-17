@@ -1,0 +1,42 @@
+[Unit]
+Description=Knowra Web (Next.js production server)
+After=network.target
+Documentation=https://knowra.space
+
+[Service]
+Type=simple
+User=knowra
+Group=knowra
+WorkingDirectory=/opt/knowra/apps/web
+
+# Environment comes from a single file on disk owned by `knowra`. Use
+# `chmod 600` on it so nothing else can read your DATABASE_URL etc.
+EnvironmentFile=/opt/knowra/.env
+
+# Hard-coded PORT in case the .env doesn't set one.
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Next.js standalone start. `pnpm start` runs `next start --port 3000`
+# from apps/web/package.json — see that file for the script.
+ExecStart=/usr/bin/env pnpm start
+
+# Restart on crash, but back off so a failing service doesn't burn CPU.
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=10
+StartLimitIntervalSec=60
+
+# Modest hardening — don't let the service write outside its dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/knowra /var/log/knowra
+
+StandardOutput=append:/var/log/knowra/web.log
+StandardError=append:/var/log/knowra/web.err.log
+
+[Install]
+WantedBy=multi-user.target

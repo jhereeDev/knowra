@@ -1,0 +1,1 @@
+ALTER TABLE "articles" ADD COLUMN "hook_source" text;

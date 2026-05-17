@@ -1,0 +1,45 @@
+# Caddy reverse proxy for Knowra. Caddy auto-manages TLS via Let's
+# Encrypt — your VPS just needs ports 80 and 443 open and the DNS A
+# records for knowra.space + www.knowra.space pointing at this server.
+#
+# Reload after changes: sudo systemctl reload caddy
+# Tail logs:           sudo tail -f /var/log/caddy/knowra-access.log
+
+knowra.space {
+	encode gzip zstd
+
+	# Forward everything to the Next.js app on localhost:3000.
+	reverse_proxy localhost:3000 {
+		# Pass through the client's real IP so the app can log + rate-limit.
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+	}
+
+	# Cache static Next.js asset bundles aggressively — they're hashed.
+	@nextStatic path /_next/static/*
+	header @nextStatic Cache-Control "public, max-age=31536000, immutable"
+
+	# Security headers — cheap insurance.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		# Don't leak server identity.
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/knowra-access.log {
+			roll_size 50mb
+			roll_keep 7
+		}
+		format json
+	}
+}
+
+# Redirect www → apex for SEO consistency.
+www.knowra.space {
+	redir https://knowra.space{uri} permanent
+}

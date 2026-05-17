@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Builds
+dist/
+build/
+out/
+.next/
+.turbo/
+.expo/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Native
+ios/
+android/
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
+
+# Drizzle
+drizzle/
+
+# Scratch
+scratch/
+
+# Test coverage
+coverage/
+
+# Sentry
+.sentryclirc
