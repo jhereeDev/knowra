@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Linking,
   Pressable,
   Text,
   TextInput,
@@ -13,8 +12,9 @@ import { Image as RawExpoImage, type ImageProps as ExpoImageProps } from 'expo-i
 import { Feather as RawFeather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { searchResponseSchema, type SearchResult } from '@knowra/shared';
+import { searchResponseSchema, type Card, type SearchResult } from '@knowra/shared';
 import { tapImpact } from '@/lib/haptics';
+import { ArticleReader } from '@/components/ArticleReader';
 
 const Image = RawExpoImage as unknown as React.ComponentType<ExpoImageProps>;
 type FeatherProps = { name: string; size?: number; color?: string; style?: StyleProp<TextStyle> };
@@ -32,6 +32,7 @@ export default function SearchScreen() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [readerCard, setReaderCard] = useState<Card | null>(null);
 
   // Debounce the input so we don't fire a search per keystroke.
   useEffect(() => {
@@ -72,13 +73,23 @@ export default function SearchScreen() {
 
   const openArticle = useCallback((result: SearchResult) => {
     tapImpact();
-    // Opening Wikipedia directly: the search modal doesn't have the full
-    // Card payload (no extracted color, no LLM hook), so jumping into the
-    // pager would be inconsistent. The reader is the right destination —
-    // construct a minimal Wikipedia URL and let the user dive in.
+    // Open in the in-app reader. We synthesize a minimal Card from the
+    // search result — the reader only needs wikipediaUrl + wikiId; the
+    // other fields are placeholders.
     const slug = result.title.replace(/ /g, '_');
-    const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(slug)}`;
-    void Linking.openURL(url);
+    setReaderCard({
+      articleId: result.wikiId,
+      wikiId: result.wikiId,
+      lang: 'en',
+      title: result.title,
+      subtitle: result.description,
+      hook: '',
+      image: null,
+      categories: [],
+      wikipediaUrl: `https://en.wikipedia.org/wiki/${encodeURIComponent(slug)}`,
+      attribution: 'Wikipedia, CC BY-SA 4.0',
+      fetchedAt: new Date().toISOString(),
+    });
   }, []);
 
   return (
@@ -148,6 +159,8 @@ export default function SearchScreen() {
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         />
       )}
+
+      <ArticleReader card={readerCard} onClose={() => setReaderCard(null)} />
     </View>
   );
 }

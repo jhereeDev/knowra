@@ -6,6 +6,7 @@ import { extractImageMetadata } from './imageMetadata';
 import { isConfigured as cfConfigured, pickVariant, uploadImageByUrl } from './cloudflareImages';
 import { generateHook } from './hooks';
 import { classifyTopics } from './classify';
+import { CACHE_TTL, getOrSet } from './cache';
 
 // Background-fill the dominant color + blurhash (and CDN URLs if CF is
 // configured) for an images row whose initial insert had nulls. Called
@@ -107,9 +108,22 @@ export async function searchWikipedia(
 ): Promise<WikiSearchResult[]> {
   const trimmed = q.trim();
   if (!trimmed) return [];
+  const cap = Math.min(limit, 20);
+  // Cached because the same queries repeat across users ("apollo 11",
+  // "world cup"). Key normalizes case + collapses whitespace so
+  // "Apollo 11" and "apollo  11" share an entry.
+  const cacheKey = `wikipedia:search:${lang}:${cap}:${trimmed.toLowerCase().replace(/\s+/g, ' ')}`;
+  return getOrSet(cacheKey, CACHE_TTL.search, () => searchWikipediaUncached(trimmed, lang, cap));
+}
+
+async function searchWikipediaUncached(
+  trimmed: string,
+  lang: string,
+  cap: number,
+): Promise<WikiSearchResult[]> {
   const url = `https://api.wikimedia.org/core/v1/wikipedia/${lang}/search/page?q=${encodeURIComponent(
     trimmed,
-  )}&limit=${Math.min(limit, 20)}`;
+  )}&limit=${cap}`;
   const res = await fetch(url, {
     headers: { 'User-Agent': userAgent() },
     cache: 'no-store',
@@ -163,31 +177,38 @@ export async function fetchMostReadSummaries(
   const yyyy = String(date.getUTCFullYear());
   const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(date.getUTCDate()).padStart(2, '0');
-  const url = `${REST_BASE.replace('{lang}', lang)}/feed/featured/${yyyy}/${mm}/${dd}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': userAgent() },
-    cache: 'no-store',
+  // Cached because Wikipedia's most-read for a past date is stable —
+  // calling it 100 times per minute just because users hit "Trending"
+  // wastes a round-trip and risks rate limits. TTL is hours, not days,
+  // to absorb any late-arriving aggregation updates.
+  const cacheKey = `wikipedia:mostread:${lang}:${yyyy}-${mm}-${dd}`;
+  return getOrSet(cacheKey, CACHE_TTL.mostRead, async () => {
+    const url = `${REST_BASE.replace('{lang}', lang)}/feed/featured/${yyyy}/${mm}/${dd}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': userAgent() },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      throw new WikipediaError(
+        `Wikipedia featured failed: ${res.status} ${res.statusText}`,
+        res.status,
+      );
+    }
+    const raw: unknown = await res.json();
+    const data = raw as { mostread?: { articles?: unknown[] } };
+    const out: WikiSummary[] = [];
+    const seen = new Set<number>();
+    for (const p of data.mostread?.articles ?? []) {
+      const parsed = wikiSummarySchema.safeParse(p);
+      if (!parsed.success) continue;
+      if (parsed.data.type === 'disambiguation') continue;
+      if (!parsed.data.extract?.trim()) continue;
+      if (seen.has(parsed.data.pageid)) continue;
+      seen.add(parsed.data.pageid);
+      out.push(parsed.data);
+    }
+    return out;
   });
-  if (!res.ok) {
-    throw new WikipediaError(
-      `Wikipedia featured failed: ${res.status} ${res.statusText}`,
-      res.status,
-    );
-  }
-  const raw: unknown = await res.json();
-  const data = raw as { mostread?: { articles?: unknown[] } };
-  const out: WikiSummary[] = [];
-  const seen = new Set<number>();
-  for (const p of data.mostread?.articles ?? []) {
-    const parsed = wikiSummarySchema.safeParse(p);
-    if (!parsed.success) continue;
-    if (parsed.data.type === 'disambiguation') continue;
-    if (!parsed.data.extract?.trim()) continue;
-    if (seen.has(parsed.data.pageid)) continue;
-    seen.add(parsed.data.pageid);
-    out.push(parsed.data);
-  }
-  return out;
 }
 
 // Wikipedia REST: /page/related/{title} returns up to ~20 articles related
@@ -239,41 +260,47 @@ export async function fetchOnThisDaySummaries(
 ): Promise<WikiSummary[]> {
   const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(date.getUTCDate()).padStart(2, '0');
-  const url = `${REST_BASE.replace('{lang}', lang)}/feed/onthisday/all/${mm}/${dd}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': userAgent() },
-    cache: 'no-store',
+  // Cached because the on-this-day list for MM-DD is stable for the
+  // calendar day. Key includes only MM-DD so all years map to the same
+  // entry (which is what the Wikipedia endpoint returns anyway).
+  const cacheKey = `wikipedia:onthisday:${lang}:${mm}-${dd}`;
+  return getOrSet(cacheKey, CACHE_TTL.onThisDay, async () => {
+    const url = `${REST_BASE.replace('{lang}', lang)}/feed/onthisday/all/${mm}/${dd}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': userAgent() },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      throw new WikipediaError(
+        `Wikipedia onthisday failed: ${res.status} ${res.statusText}`,
+        res.status,
+      );
+    }
+    const raw: unknown = await res.json();
+    // The on-this-day payload is a record of category → entry[]; each entry
+    // has a `pages` array whose items match our wikiSummarySchema. We pull
+    // pages from `selected` (curated) and `events` (broader) for breadth.
+    const data = raw as {
+      selected?: Array<{ pages?: unknown[] }>;
+      events?: Array<{ pages?: unknown[] }>;
+    };
+    const rawPages = [
+      ...(data.selected ?? []).flatMap((e) => e.pages ?? []),
+      ...(data.events ?? []).flatMap((e) => e.pages ?? []),
+    ];
+    const summaries: WikiSummary[] = [];
+    const seen = new Set<number>();
+    for (const p of rawPages) {
+      const parsed = wikiSummarySchema.safeParse(p);
+      if (!parsed.success) continue;
+      if (seen.has(parsed.data.pageid)) continue;
+      if (parsed.data.type === 'disambiguation') continue;
+      if (!parsed.data.extract?.trim()) continue;
+      seen.add(parsed.data.pageid);
+      summaries.push(parsed.data);
+    }
+    return summaries;
   });
-  if (!res.ok) {
-    throw new WikipediaError(
-      `Wikipedia onthisday failed: ${res.status} ${res.statusText}`,
-      res.status,
-    );
-  }
-  const raw: unknown = await res.json();
-  // The on-this-day payload is a record of category → entry[]; each entry
-  // has a `pages` array whose items match our wikiSummarySchema. We pull
-  // pages from `selected` (curated) and `events` (broader) for breadth.
-  const data = raw as {
-    selected?: Array<{ pages?: unknown[] }>;
-    events?: Array<{ pages?: unknown[] }>;
-  };
-  const rawPages = [
-    ...(data.selected ?? []).flatMap((e) => e.pages ?? []),
-    ...(data.events ?? []).flatMap((e) => e.pages ?? []),
-  ];
-  const summaries: WikiSummary[] = [];
-  const seen = new Set<number>();
-  for (const p of rawPages) {
-    const parsed = wikiSummarySchema.safeParse(p);
-    if (!parsed.success) continue;
-    if (seen.has(parsed.data.pageid)) continue;
-    if (parsed.data.type === 'disambiguation') continue;
-    if (!parsed.data.extract?.trim()) continue;
-    seen.add(parsed.data.pageid);
-    summaries.push(parsed.data);
-  }
-  return summaries;
 }
 
 type ImageUpsertResult = {

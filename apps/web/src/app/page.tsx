@@ -26,10 +26,10 @@ export default function HomePage() {
 
         <div className="mt-10 flex flex-wrap gap-3">
           <a
-            href="#waitlist"
+            href="mailto:jheremiah.dev@gmail.com?subject=Knowra%20beta%20access"
             className="rounded-full bg-knowverse-star px-6 py-3 text-sm font-semibold text-knowverse-deep transition hover:opacity-90"
           >
-            Join the waitlist
+            Request beta access
           </a>
           <Link
             href="/about"
@@ -38,6 +38,9 @@ export default function HomePage() {
             How it works
           </Link>
         </div>
+        <p className="mt-4 text-xs text-knowverse-star/40">
+          iOS TestFlight live · App Store + Play Store coming soon
+        </p>
       </section>
 
       <section className="mt-24 grid gap-6 sm:grid-cols-3">
@@ -56,7 +59,26 @@ export default function HomePage() {
       </section>
 
       <footer className="mt-auto pt-24 text-xs text-knowverse-star/40">
-        <p>
+        <nav className="flex flex-wrap gap-5">
+          {/* Plain anchors for the legal pages so Next.js typed routes
+              don't complain about routes added after the last build. */}
+          <a href="/privacy" className="hover:text-knowverse-star/70">
+            Privacy
+          </a>
+          <a href="/terms" className="hover:text-knowverse-star/70">
+            Terms
+          </a>
+          <Link href="/about" className="hover:text-knowverse-star/70">
+            How we use Wikipedia
+          </Link>
+          <a
+            href="mailto:jheremiah.dev@gmail.com"
+            className="hover:text-knowverse-star/70"
+          >
+            Contact
+          </a>
+        </nav>
+        <p className="mt-6">
           Content from Wikipedia, licensed{' '}
           <a
             href="https://creativecommons.org/licenses/by-sa/4.0/"
@@ -65,12 +87,6 @@ export default function HomePage() {
             CC BY-SA 4.0
           </a>
           . Knowra is independent and not affiliated with the Wikimedia Foundation.
-        </p>
-        <p className="mt-2">
-          API:{' '}
-          <Link href="/api/health" className="underline hover:text-knowverse-star/70">
-            /api/health
-          </Link>
         </p>
       </footer>
     </main>

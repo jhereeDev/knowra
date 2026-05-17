@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
-  Linking,
   Modal,
   Pressable,
   RefreshControl,
@@ -14,8 +13,9 @@ import {
 import type { StyleProp, TextStyle } from 'react-native';
 import { Image as RawExpoImage, type ImageProps as ExpoImageProps } from 'expo-image';
 import { Stack, useRouter } from 'expo-router';
-import { Feather as RawFeather } from '@expo/vector-icons';
+import { Feather as RawFeather, Ionicons as RawIonicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { Card } from '@knowra/shared';
 import {
   createCollection,
   deleteCollection,
@@ -25,10 +25,12 @@ import {
   useSavedList,
   type SavedEntry,
 } from '@/lib/savedArticles';
+import { ArticleReader } from '@/components/ArticleReader';
 
 const Image = RawExpoImage as unknown as React.ComponentType<ExpoImageProps>;
-type FeatherProps = { name: string; size?: number; color?: string; style?: StyleProp<TextStyle> };
-const Feather = RawFeather as unknown as React.ComponentType<FeatherProps>;
+type IconProps = { name: string; size?: number; color?: string; style?: StyleProp<TextStyle> };
+const Feather = RawFeather as unknown as React.ComponentType<IconProps>;
+const Ionicons = RawIonicons as unknown as React.ComponentType<IconProps>;
 
 const ALL_TAB = '__all__';
 const SEARCH_DEBOUNCE_MS = 150;
@@ -48,6 +50,7 @@ export default function SavedScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchRaw, setSearchRaw] = useState('');
   const [search, setSearch] = useState('');
+  const [readerCard, setReaderCard] = useState<Card | null>(null);
 
   // Debounce search by 150ms so each keystroke doesn't rebuild the filter.
   useEffect(() => {
@@ -217,7 +220,7 @@ export default function SavedScreen() {
         <FlatList
           data={filteredEntries}
           keyExtractor={(item) => item.card.articleId}
-          renderItem={({ item }) => <Row entry={item} />}
+          renderItem={({ item }) => <Row entry={item} onOpen={() => setReaderCard(item.card)} />}
           contentContainerStyle={{ paddingBottom: insets.bottom + 32, paddingTop: 8 }}
           refreshControl={
             <RefreshControl
@@ -230,6 +233,8 @@ export default function SavedScreen() {
           keyboardShouldPersistTaps="handled"
         />
       )}
+
+      <ArticleReader card={readerCard} onClose={() => setReaderCard(null)} />
 
       {/* Create-collection modal */}
       <Modal
@@ -373,16 +378,13 @@ function EmptyState({
   );
 }
 
-function Row({ entry }: { entry: SavedEntry }) {
+function Row({ entry, onOpen }: { entry: SavedEntry; onOpen: () => void }) {
   const { card } = entry;
   const title = stripHtml(card.title);
 
   return (
     <View className="flex-row gap-3 px-4 py-3">
-      <Pressable
-        onPress={() => void Linking.openURL(card.wikipediaUrl)}
-        className="flex-1 flex-row gap-3"
-      >
+      <Pressable onPress={onOpen} className="flex-1 flex-row gap-3">
         <View
           style={{
             width: 72,
@@ -417,7 +419,9 @@ function Row({ entry }: { entry: SavedEntry }) {
         accessibilityLabel="Remove from saved"
         className="self-center px-3"
       >
-        <Feather name="bookmark" size={18} color="rgba(231,233,255,0.6)" />
+        {/* Filled bookmark — Ionicons has a solid variant; Feather doesn't.
+            The article is, by definition, already saved on this screen. */}
+        <Ionicons name="bookmark" size={20} color="#e7e9ff" />
       </Pressable>
     </View>
   );
