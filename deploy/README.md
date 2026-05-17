@@ -4,15 +4,17 @@ The Next.js app at `apps/web` serves both the marketing site (`/`, `/about`) and
 
 ## Stack
 
-| Piece | What |
-|---|---|
-| Reverse proxy + TLS | **Caddy** (auto Let's Encrypt) |
-| Process manager | **systemd** unit `knowra-web.service` |
-| Runtime | **Node 20** + **pnpm 10.11** (installed via NodeSource + corepack) |
-| App | `pnpm --filter @knowra/web build && pnpm --filter @knowra/web start` |
-| Repo location | `/opt/knowra` (owned by user `knowra`) |
-| Env file | `/opt/knowra/.env` (0600, owned by `knowra`) |
-| Logs | `/var/log/knowra/web.log` + `journalctl -u knowra-web` |
+
+| Piece               | What                                                                 |
+| ------------------- | -------------------------------------------------------------------- |
+| Reverse proxy + TLS | **Caddy** (auto Let's Encrypt)                                       |
+| Process manager     | **systemd** unit `knowra-web.service`                                |
+| Runtime             | **Node 20** + **pnpm 10.11** (installed via NodeSource + corepack)   |
+| App                 | `pnpm --filter @knowra/web build && pnpm --filter @knowra/web start` |
+| Repo location       | `/opt/knowra` (owned by user `knowra`)                               |
+| Env file            | `/opt/knowra/.env` (0600, owned by `knowra`)                         |
+| Logs                | `/var/log/knowra/web.log` + `journalctl -u knowra-web`               |
+
 
 ## Prerequisites
 
@@ -50,6 +52,7 @@ sudo systemctl enable --now knowra-web
 ```
 
 `deploy.sh` will:
+
 1. `git pull` latest
 2. `pnpm install --frozen-lockfile`
 3. `pnpm --filter @knowra/web build`
@@ -68,6 +71,7 @@ curl https://knowra.space/api/health
 ```
 
 If the second one fails:
+
 - `dig knowra.space` — does it return your VPS IP?
 - `sudo systemctl status caddy` — running?
 - `sudo journalctl -u caddy -n 50` — any cert-fetch errors?
@@ -94,14 +98,16 @@ The systemd service only reads `.env` on start. Restart picks up changes.
 
 ## Useful commands
 
-| What | Command |
-|---|---|
-| Tail app logs | `sudo journalctl -u knowra-web -f` |
-| App log file | `sudo tail -f /var/log/knowra/web.log` |
-| Caddy access log | `sudo tail -f /var/log/caddy/knowra-access.log` |
-| Reload Caddy after Caddyfile change | `sudo systemctl reload caddy` |
-| Restart app only | `sudo systemctl restart knowra-web` |
-| Stop everything | `sudo systemctl stop knowra-web caddy` |
+
+| What                                | Command                                         |
+| ----------------------------------- | ----------------------------------------------- |
+| Tail app logs                       | `sudo journalctl -u knowra-web -f`              |
+| App log file                        | `sudo tail -f /var/log/knowra/web.log`          |
+| Caddy access log                    | `sudo tail -f /var/log/caddy/knowra-access.log` |
+| Reload Caddy after Caddyfile change | `sudo systemctl reload caddy`                   |
+| Restart app only                    | `sudo systemctl restart knowra-web`             |
+| Stop everything                     | `sudo systemctl stop knowra-web caddy`          |
+
 
 ## Memory / sizing
 
@@ -135,11 +141,14 @@ Add `VPS_SSH_KEY`, `VPS_USER`, `VPS_HOST` to repo secrets. Done.
 
 ## Files in this directory
 
-| File | What |
-|---|---|
-| `setup.sh` | One-time VPS bootstrap |
-| `deploy.sh` | Every-deploy script (pull → build → migrate → restart) |
-| `Caddyfile` | Caddy reverse-proxy + TLS config |
-| `knowra-web.service` | systemd unit |
-| `env.example` | Template for `/opt/knowra/.env` |
-| `README.md` | This file |
+
+| File                 | What                                                   |
+| -------------------- | ------------------------------------------------------ |
+| `setup.sh`           | One-time VPS bootstrap                                 |
+| `deploy.sh`          | Every-deploy script (pull → build → migrate → restart) |
+| `Caddyfile`          | Caddy reverse-proxy + TLS config                       |
+| `knowra-web.service` | systemd unit                                           |
+| `env.example`        | Template for `/opt/knowra/.env`                        |
+| `README.md`          | This file                                              |
+
+

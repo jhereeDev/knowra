@@ -13,9 +13,11 @@ WorkingDirectory=/opt/knowra/apps/web
 # `chmod 600` on it so nothing else can read your DATABASE_URL etc.
 EnvironmentFile=/opt/knowra/.env
 
-# Hard-coded PORT in case the .env doesn't set one.
+# Fallback PORT if .env doesn't set one. EnvironmentFile (above) wins
+# when it does — keep this in sync with deploy/Caddyfile's reverse_proxy
+# port if you ever change defaults.
 Environment="NODE_ENV=production"
-Environment="PORT=3000"
+Environment="PORT=3001"
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Next.js standalone start. `pnpm start` runs `next start --port 3000`

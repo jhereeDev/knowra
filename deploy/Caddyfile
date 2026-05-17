@@ -8,8 +8,9 @@
 knowra.space {
 	encode gzip zstd
 
-	# Forward everything to the Next.js app on localhost:3000.
-	reverse_proxy localhost:3000 {
+	# Forward to the Next.js app. Port must match PORT in /opt/knowra/.env.
+	# Default 3000; production VPS uses 3001 because Docker holds 3000.
+	reverse_proxy localhost:3001 {
 		# Pass through the client's real IP so the app can log + rate-limit.
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
