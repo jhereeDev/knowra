@@ -63,7 +63,7 @@ sudo systemctl enable --now knowra-web
 
 ```bash
 # On the VPS:
-curl http://localhost:3000/api/health
+curl http://localhost:3033/api/health   # whatever PORT is set to in .env
 # → {"ok":true,"service":"knowra-web","version":"0.0.1","timestamp":"..."}
 
 # From your laptop (once DNS has propagated and Caddy has the cert):

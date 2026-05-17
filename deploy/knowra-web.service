@@ -17,11 +17,12 @@ EnvironmentFile=/opt/knowra/.env
 # when it does — keep this in sync with deploy/Caddyfile's reverse_proxy
 # port if you ever change defaults.
 Environment="NODE_ENV=production"
-Environment="PORT=3001"
+Environment="PORT=3033"
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-# Next.js standalone start. `pnpm start` runs `next start --port 3000`
-# from apps/web/package.json — see that file for the script.
+# Next.js standalone start. `pnpm start` runs `next start -p $PORT` from
+# apps/web/package.json — PORT comes from EnvironmentFile above, falling
+# back to the Environment="PORT=..." line if the env file is missing.
 ExecStart=/usr/bin/env pnpm start
 
 # Restart on crash, but back off so a failing service doesn't burn CPU.

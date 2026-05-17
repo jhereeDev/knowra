@@ -71,5 +71,5 @@ systemctl status knowra-web --no-pager --lines=5
 
 echo ""
 echo "✓ Deployed. Verify:"
-echo "   curl -sS http://localhost:${PORT:-3001}/api/health"
+echo "   curl -sS http://localhost:${PORT:-3033}/api/health"
 echo "   curl -sS https://knowra.space/api/health"
