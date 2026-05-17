@@ -24,6 +24,13 @@ fi
 
 cd "${APP_DIR}"
 
+# Self-heal ownership in case anyone touched files as root (manual edits,
+# moves, etc.). Cheap operation; only chown's files where it's needed.
+if [[ "$(stat -c '%U' "${APP_DIR}")" != "${DEPLOY_USER}" ]]; then
+	echo "==> Repairing ownership to ${DEPLOY_USER}"
+	chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${APP_DIR}"
+fi
+
 echo "==> Pulling latest from main"
 sudo -u "${DEPLOY_USER}" git fetch --quiet origin main
 sudo -u "${DEPLOY_USER}" git reset --hard origin/main
