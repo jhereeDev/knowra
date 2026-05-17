@@ -47,12 +47,13 @@ export async function GET(
     image:
       img && img.width && img.height
         ? {
-            url: img.sourceUrl,
+            url: img.cdnUrl1080 ?? img.sourceUrl,
             width: img.width,
             height: img.height,
             dominantColor: img.dominantColor,
           }
         : null,
+    categories: a.categories ?? [],
     wikipediaUrl,
     attribution: 'Wikipedia, CC BY-SA 4.0',
     fetchedAt: new Date().toISOString(),
