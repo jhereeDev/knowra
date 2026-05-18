@@ -1,13 +1,23 @@
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth, useUser } from '@clerk/clerk-expo';
 import { ALL_TOPICS, toggleTopic, useTopicPrefs, type Topic } from '@/lib/topicPrefs';
 import { useStreak } from '@/lib/streak';
 import { tapImpact } from '@/lib/haptics';
-import { resetSyncState } from '@/lib/sync';
 
+// DO NOT static-import @clerk/clerk-expo here — see comment at the top
+// of _layout.tsx. We render AccountSection via a tiny lazy wrapper so
+// the Clerk module body only loads on devices that have the env key.
 const CLERK_ENABLED = Boolean(process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY);
+
+function LazyAccountSection() {
+  // require() inside a function body is evaluated lazily by Metro, so
+  // the @clerk/clerk-expo chain (including expo-auth-session →
+  // ExpoCryptoAES) only loads when this component actually renders.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const { AccountSection } = require('@/components/AccountSection');
+  return <AccountSection />;
+}
 
 export default function SettingsScreen() {
   const selected = useTopicPrefs();
@@ -27,7 +37,7 @@ export default function SettingsScreen() {
       />
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}>
         {/* Account — only rendered when Clerk is configured. */}
-        {CLERK_ENABLED && <AccountSection />}
+        {CLERK_ENABLED && <LazyAccountSection />}
 
         {/* Topic preferences */}
         <Section title="Topics you like" hint="A nudge for the For You feed. Toggle any.">
@@ -111,63 +121,9 @@ function Section({
   );
 }
 
-function AccountSection() {
-  const { isLoaded, isSignedIn, signOut } = useAuth();
-  const { user } = useUser();
-  const router = useRouter();
-
-  // Clerk's `isLoaded` flips true once the session resource finishes
-  // hydrating from the token cache. Render nothing in the meantime so
-  // the Settings page doesn't flash a stale "Sign in" pill while a
-  // returning user's session is still loading.
-  if (!isLoaded) return null;
-
-  const email = user?.primaryEmailAddress?.emailAddress;
-
-  return (
-    <Section title="Account">
-      <View className="px-5 pt-3">
-        {isSignedIn ? (
-          <>
-            <Text className="text-knowverse-star text-sm">
-              Signed in as {email ?? user?.firstName ?? 'your account'}
-            </Text>
-            <Text className="text-knowverse-star/50 mt-1 text-xs">
-              Your saves, collections, and streak sync to this account on every
-              change.
-            </Text>
-            <Pressable
-              onPress={() => {
-                void (async () => {
-                  await signOut();
-                  await resetSyncState();
-                })();
-              }}
-              className="mt-4 self-start rounded-full border border-knowverse-star/30 px-4 py-2"
-            >
-              <Text className="text-knowverse-star/80 text-sm">Sign out</Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text className="text-knowverse-star/70 text-sm">
-              Sign in to sync your saves and streak across devices. Optional —
-              Knowra works fully without an account.
-            </Text>
-            <Pressable
-              onPress={() => router.push('/sign-in')}
-              className="bg-knowverse-star mt-4 self-start rounded-full px-5 py-2"
-            >
-              <Text className="text-knowverse-deep text-sm font-semibold">
-                Sign in
-              </Text>
-            </Pressable>
-          </>
-        )}
-      </View>
-    </Section>
-  );
-}
+// AccountSection moved to apps/mobile/src/components/AccountSection.tsx
+// so the Clerk module body is lazy-required (LazyAccountSection above)
+// instead of statically imported here.
 
 function TopicPill({ topic, active }: { topic: Topic; active: boolean }) {
   const onPress = () => {

@@ -8,22 +8,17 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
-import { ClerkProvider as RawClerkProvider } from '@clerk/clerk-expo';
 import { recordAppOpen } from '@/lib/streak';
 import { registerForPushNotifications } from '@/lib/notifications';
-import { clerkTokenCache, type ClerkTokenCache } from '@/lib/clerkTokenCache';
 
-// Recurring React-19 JSX-class workaround. Clerk's own component
-// types don't yet satisfy React 19's stricter JSX constraint and
-// reject the `children` prop. Casting to a plain function-component
-// type preserves runtime behavior. See CardView / expo-image for
-// the same pattern.
-type ClerkProviderProps = {
-  publishableKey: string;
-  tokenCache: ClerkTokenCache;
-  children: React.ReactNode;
-};
-const ClerkProvider = RawClerkProvider as unknown as React.ComponentType<ClerkProviderProps>;
+// IMPORTANT: do NOT static-import `@clerk/clerk-expo` here. Its
+// dependency chain runs `expo-auth-session` → native `ExpoCryptoAES`
+// on module load, and that module is NOT bundled in Expo Go SDK 54.
+// A top-level import crashes the app at startup before any JSX
+// runs. Instead, we lazy-`require()` the module inside the wrapper
+// function below — Metro bundles it eagerly but defers execution
+// until the function is actually called, which only happens when
+// `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` is set (i.e. a real EAS build).
 
 // Keep the native splash visible until React has actually committed the
 // first frame of the feed (cached cards if we have them, skeleton if not).
@@ -120,11 +115,27 @@ export default function RootLayout() {
   );
 
   if (!CLERK_PUBLISHABLE_KEY) return tree;
+  return wrapWithClerk(tree, CLERK_PUBLISHABLE_KEY);
+}
+
+// Lazy Clerk wrapper. Only invoked when the publishable key is set;
+// the require() calls don't evaluate until then. See the import-block
+// comment above for why this can't be a static import.
+function wrapWithClerk(tree: React.ReactElement, publishableKey: string): React.ReactElement {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const { ClerkProvider: RawClerkProvider } = require('@clerk/clerk-expo');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const { clerkTokenCache } = require('@/lib/clerkTokenCache');
+  // Recurring React-19 JSX-class cast — Clerk's component types reject
+  // the `children` prop under the stricter R19 constraint. Same pattern
+  // as expo-image / Animated.View.
+  const ClerkProvider = RawClerkProvider as unknown as React.ComponentType<{
+    publishableKey: string;
+    tokenCache: typeof clerkTokenCache;
+    children: React.ReactNode;
+  }>;
   return (
-    <ClerkProvider
-      publishableKey={CLERK_PUBLISHABLE_KEY}
-      tokenCache={clerkTokenCache}
-    >
+    <ClerkProvider publishableKey={publishableKey} tokenCache={clerkTokenCache}>
       {tree}
     </ClerkProvider>
   );

@@ -3,7 +3,7 @@
     "name": "Knowra",
     "slug": "knowra",
     "scheme": "knowra",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
@@ -15,6 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
+      "buildNumber": "8",
       "bundleIdentifier": "space.knowra.app",
       "icon": "./assets/icon.png",
       "infoPlist": {
@@ -31,10 +32,7 @@
     "web": {
       "bundler": "metro"
     },
-    "plugins": [
-      "expo-router",
-      "expo-secure-store"
-    ],
+    "plugins": ["expo-router", "expo-secure-store"],
     "experiments": {
       "typedRoutes": true,
       "tsconfigPaths": true

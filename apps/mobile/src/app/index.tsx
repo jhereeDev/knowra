@@ -29,7 +29,7 @@ import { Toast } from '@/components/Toast';
 import { flush, track } from '@/lib/events';
 import { useSavedIds } from '@/lib/savedArticles';
 import { consumeNextMilestone, useStreak, type Milestone } from '@/lib/streak';
-import { markSwipeSeen, useHasCalibrated, useHasSeenSwipeHint } from '@/lib/onboarding';
+import { markCalibrated, markSwipeSeen, useHasCalibrated, useHasSeenSwipeHint } from '@/lib/onboarding';
 import { bumpImpression } from '@/lib/nudgeCounter';
 import { StreakMilestone } from '@/components/StreakMilestone';
 
@@ -51,13 +51,26 @@ export default function FeedScreen() {
   const streak = useStreak();
   const hasSeenSwipeHint = useHasSeenSwipeHint();
 
+  // One-shot migration for users who upgraded from a pre-onboarding
+  // build: anyone who already has saved articles or a streak going has
+  // implicitly demonstrated calibration. Mark them as such so they
+  // don't get bounced into the new topic-picker screen mid-session.
+  useEffect(() => {
+    if (calibrated !== false) return;
+    if (savedIds.size > 0 || streak.count >= 1) {
+      void markCalibrated();
+    }
+  }, [calibrated, savedIds.size, streak.count]);
+
   // First-launch gate. While the SecureStore flag is loading we render
   // nothing — the native splash is still over the top, so a blank tree
   // here is invisible. Once loaded:
-  //   - false → route to /onboarding/topics
-  //   - true  → fall through to the feed
+  //   - false (and no existing data) → route to /onboarding/topics
+  //   - true (or migrated above)     → fall through to the feed
   if (calibrated === null) return null;
-  if (calibrated === false) return <Redirect href={'/onboarding/topics' as never} />;
+  if (calibrated === false && savedIds.size === 0 && streak.count === 0) {
+    return <Redirect href={'/onboarding/topics' as never} />;
+  }
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [skipUndoVisible, setSkipUndoVisible] = useState(false);
   const lastImpressionId = useRef<string | null>(null);
