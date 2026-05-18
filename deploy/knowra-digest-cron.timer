@@ -1,0 +1,25 @@
+[Unit]
+Description=Knowra daily-digest schedule (13:30 UTC daily)
+Documentation=https://knowra.space
+
+[Timer]
+# 13:30 UTC every day. Picked because it lands at 8:30am ET / 5:30am PT —
+# people open their phones first thing, and the push needs to be there.
+# Matches the same wall-clock fired by apps/web/vercel.json if/when we
+# move to Vercel.
+OnCalendar=*-*-* 13:30:00 UTC
+
+# Persistent runs catch a missed firing — e.g. VPS rebooted at 13:25 and
+# was still booting at 13:30. Without this the daily digest gets skipped
+# whenever the box was offline at the trigger moment.
+Persistent=true
+
+# 60s of randomized delay so two servers in the same pool don't slam the
+# Anthropic / Expo Push APIs at the exact same millisecond. Cheap when
+# there's just one host, free insurance for later.
+RandomizedDelaySec=60
+
+Unit=knowra-digest-cron.service
+
+[Install]
+WantedBy=timers.target

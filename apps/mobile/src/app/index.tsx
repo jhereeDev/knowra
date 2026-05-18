@@ -16,11 +16,11 @@ type FeatherIconProps = {
 const Feather = RawFeather as unknown as React.ComponentType<FeatherIconProps>;
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Card } from '@knowra/shared';
-import { useCardFeed, type FeedType } from '@/hooks/useCardFeed';
+import { useCardFeed, type FeedItem, type FeedType } from '@/hooks/useCardFeed';
 import { VerticalPager } from '@/components/VerticalPager';
 import { CardView } from '@/components/CardView';
 import { CardSkeleton } from '@/components/CardSkeleton';
+import { DonationNudge } from '@/components/DonationNudge';
 import { OnboardingSwipeHint } from '@/components/OnboardingSwipeHint';
 import { SkipUndoToast } from '@/components/SkipUndoToast';
 import { Toast } from '@/components/Toast';
@@ -28,6 +28,7 @@ import { flush, track } from '@/lib/events';
 import { useSavedIds } from '@/lib/savedArticles';
 import { consumeNextMilestone, useStreak, type Milestone } from '@/lib/streak';
 import { markSwipeSeen, useHasSeenSwipeHint } from '@/lib/onboarding';
+import { bumpImpression } from '@/lib/nudgeCounter';
 import { StreakMilestone } from '@/components/StreakMilestone';
 
 const QUICK_SKIP_MS = 1500;
@@ -59,15 +60,22 @@ export default function FeedScreen() {
     });
   }, [streak]);
 
-  // Emit an impression each time the current card changes. Guards against
-  // double-fire on re-renders when current still resolves to the same card.
+  // Emit an impression each time the current CARD changes. Guards against
+  // double-fire on re-renders when current still resolves to the same item.
+  // Nudge slots are not impressions and don't bump the donation counter.
   useEffect(() => {
     const current = feed.current;
-    if (!current) return;
-    if (lastImpressionId.current === current.articleId) return;
-    lastImpressionId.current = current.articleId;
-    track(current.articleId, 'impression');
-  }, [feed.current]);
+    if (!current || current.kind !== 'card') return;
+    if (lastImpressionId.current === current.key) return;
+    lastImpressionId.current = current.key;
+    track(current.card.articleId, 'impression');
+    // Donation nudge gate (product spec §4.11): every ~50 cards, inject
+    // a nudge slot just after the current position. The counter is
+    // SecureStore-backed and idempotent — only fires once per multiple.
+    void bumpImpression().then((shouldInject) => {
+      if (shouldInject) feed.injectNudgeAfterCurrent('donation');
+    });
+  }, [feed]);
 
   // Best-effort flush on unmount so we don't lose the last few events when
   // the user backgrounds the app from this screen.
@@ -84,9 +92,12 @@ export default function FeedScreen() {
   }, []);
 
   const handleAdvance = (dwellMs: number) => {
-    if (feed.current) {
+    const current = feed.current;
+    // Only track engagement events on real cards. Swiping past a nudge
+    // is a UX-level dismissal, not a content interaction — no event row.
+    if (current?.kind === 'card') {
       const isQuickSkip = dwellMs < QUICK_SKIP_MS;
-      track(feed.current.articleId, isQuickSkip ? 'quick_skip' : 'swipe_up', { dwellMs });
+      track(current.card.articleId, isQuickSkip ? 'quick_skip' : 'swipe_up', { dwellMs });
       // Offer undo on quick-skips — "wait, that one looked interesting".
       // After advance() the card we just skipped becomes `prev`, so goBack
       // always has somewhere to land.
@@ -97,8 +108,9 @@ export default function FeedScreen() {
   };
 
   const handleGoBack = (dwellMs: number) => {
-    if (feed.current) {
-      track(feed.current.articleId, 'swipe_back', { dwellMs });
+    const current = feed.current;
+    if (current?.kind === 'card') {
+      track(current.card.articleId, 'swipe_back', { dwellMs });
     }
     if (hasSeenSwipeHint === false) void markSwipeSeen();
     feed.goBack();
@@ -140,17 +152,21 @@ export default function FeedScreen() {
 
   return (
     <View className="flex-1 bg-knowverse-deep">
-      <VerticalPager<Card>
+      <VerticalPager<FeedItem>
         prev={feed.prev}
         current={feed.current}
         next={feed.next}
         canGoBack={feed.canGoBack}
         onAdvance={handleAdvance}
         onGoBack={handleGoBack}
-        renderItem={(card) => (
-          <CardView card={card} onInjectRelated={feed.insertAfterCurrent} />
-        )}
-        keyExtractor={(card) => card.articleId}
+        renderItem={(item) =>
+          item.kind === 'card' ? (
+            <CardView card={item.card} onInjectRelated={feed.insertAfterCurrent} />
+          ) : (
+            <DonationNudge onDismiss={feed.advance} />
+          )
+        }
+        keyExtractor={(item) => item.key}
         // Pull-to-refresh on the feed: only fires when we're at the start
         // (no `prev`) and the user pulls down past 30% screen height.
         onRefresh={feed.retry}

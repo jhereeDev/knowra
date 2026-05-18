@@ -1,0 +1,28 @@
+[Unit]
+Description=Knowra daily-digest push fan-out
+# Don't try to fire before the web app is up — the cron route is part of it.
+Requires=knowra-web.service
+After=knowra-web.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=knowra
+Group=knowra
+WorkingDirectory=/opt/knowra
+
+# Same env file the web service uses — gives us CRON_SECRET and PORT.
+# Mode 0600 owned by `knowra`, readable by this oneshot.
+EnvironmentFile=/opt/knowra/.env
+
+# Fallbacks in case the env file is missing or doesn't set PORT. The
+# script also defaults PORT to 3033 internally, so this is belt-and-braces.
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+ExecStart=/usr/bin/env bash /opt/knowra/deploy/run-daily-digest.sh
+
+# Run logs go to a dedicated file so we can see month-over-month send
+# counts without journalctl filtering, and to the journal for `systemctl
+# status` convenience.
+StandardOutput=append:/var/log/knowra/digest.log
+StandardError=append:/var/log/knowra/digest.err.log

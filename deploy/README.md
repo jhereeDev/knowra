@@ -42,13 +42,16 @@ After it finishes, **edit the env file**:
 sudo -u knowra nano /opt/knowra/.env
 ```
 
-Paste your real `DATABASE_URL`, `ANTHROPIC_API_KEY`, `CF_IMAGES_*` (if using), `WIKIPEDIA_USER_AGENT`. Save.
+Paste your real `DATABASE_URL`, `ANTHROPIC_API_KEY`, `WIKIPEDIA_USER_AGENT`, `CRON_SECRET` (generate with `openssl rand -base64 32`), and optionally `CF_IMAGES_*` / `UPSTASH_REDIS_*` / Clerk keys. Save.
 
 Then build + start for the first time:
 
 ```bash
 sudo -u knowra bash /opt/knowra/deploy/deploy.sh
 sudo systemctl enable --now knowra-web
+
+# Start the daily-digest cron timer (only after CRON_SECRET is set in .env)
+sudo systemctl start knowra-digest-cron.timer
 ```
 
 `deploy.sh` will:
@@ -76,6 +79,40 @@ If the second one fails:
 - `sudo systemctl status caddy` — running?
 - `sudo journalctl -u caddy -n 50` — any cert-fetch errors?
 - `sudo ufw status` — ports 80 and 443 open?
+
+## Daily-digest push cron
+
+The mobile app's daily push notification is fired by a systemd timer on
+this VPS — **not** by `apps/web/vercel.json` (that file is reserved for a
+future Vercel deploy and is ignored here).
+
+```bash
+# When the next run will fire:
+systemctl list-timers knowra-digest-cron.timer
+
+# Manually trigger the cron right now (for testing):
+sudo systemctl start knowra-digest-cron.service
+
+# Tail the per-run log:
+sudo tail -f /var/log/knowra/digest.log
+
+# Or use the journal:
+journalctl -u knowra-digest-cron -n 50
+```
+
+Schedule lives in `knowra-digest-cron.timer` (currently `13:30 UTC` daily,
+which is 8:30am ET / 5:30am PT — adjust there if you move the wall-clock
+target). The timer is enabled at setup time but not started — start it
+once you've put a real `CRON_SECRET` into `/opt/knowra/.env`. The service
+reads the secret from the same env file the web service uses.
+
+If `systemctl status knowra-digest-cron.service` shows a non-zero exit:
+
+- `401 Unauthorized` → `CRON_SECRET` in `.env` doesn't match the value in
+  the auth header. They must be byte-identical.
+- `Connection refused` → `knowra-web.service` isn't running.
+- `500` → check the journal for the web service (`journalctl -u knowra-web`)
+  — most likely Anthropic or Expo Push returned an error.
 
 ## Re-deploying (every code change)
 
@@ -142,13 +179,16 @@ Add `VPS_SSH_KEY`, `VPS_USER`, `VPS_HOST` to repo secrets. Done.
 ## Files in this directory
 
 
-| File                 | What                                                   |
-| -------------------- | ------------------------------------------------------ |
-| `setup.sh`           | One-time VPS bootstrap                                 |
-| `deploy.sh`          | Every-deploy script (pull → build → migrate → restart) |
-| `Caddyfile`          | Caddy reverse-proxy + TLS config                       |
-| `knowra-web.service` | systemd unit                                           |
-| `env.example`        | Template for `/opt/knowra/.env`                        |
-| `README.md`          | This file                                              |
+| File                          | What                                                   |
+| ----------------------------- | ------------------------------------------------------ |
+| `setup.sh`                    | One-time VPS bootstrap                                 |
+| `deploy.sh`                   | Every-deploy script (pull → build → migrate → restart) |
+| `Caddyfile`                   | Caddy reverse-proxy + TLS config                       |
+| `knowra-web.service`          | systemd unit for the Next.js process                   |
+| `knowra-digest-cron.service`  | systemd oneshot — runs `run-daily-digest.sh`           |
+| `knowra-digest-cron.timer`    | systemd timer — fires the cron at 13:30 UTC daily      |
+| `run-daily-digest.sh`         | curls `/api/cron/daily-digest` with the auth header    |
+| `env.example`                 | Template for `/opt/knowra/.env`                        |
+| `README.md`                   | This file                                              |
 
 

@@ -303,6 +303,48 @@ export async function fetchOnThisDaySummaries(
   });
 }
 
+// Wikipedia action API: fetch the full plaintext extract for an article by
+// page id. The REST summary endpoint's `extract` field is truncated for
+// preview use; this endpoint returns the full article body in plaintext,
+// which we feed to the LLM summarizer. We truncate to ~3000 chars before
+// returning so input cost to the model stays predictable.
+// Spec: https://www.mediawiki.org/wiki/Extension:TextExtracts
+const EXTRACT_MAX_CHARS = 3000;
+export async function fetchArticleExtract(
+  pageId: string,
+  lang = 'en',
+): Promise<string> {
+  const url =
+    `https://${lang}.wikipedia.org/w/api.php` +
+    `?action=query&format=json&formatversion=2` +
+    `&prop=extracts&explaintext=1&exsectionformat=plain` +
+    `&pageids=${encodeURIComponent(pageId)}`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': userAgent() },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    throw new WikipediaError(
+      `Wikipedia extract failed: ${res.status} ${res.statusText}`,
+      res.status,
+    );
+  }
+  const raw = (await res.json()) as {
+    query?: { pages?: Array<{ extract?: string; missing?: boolean }> };
+  };
+  const page = raw.query?.pages?.[0];
+  if (!page || page.missing) return '';
+  const extract = (page.extract ?? '').trim();
+  if (extract.length <= EXTRACT_MAX_CHARS) return extract;
+  // Cut on a sentence boundary inside the cap so the LLM doesn't see a
+  // mid-word truncation. Falls back to the hard cap if no period is found.
+  const slice = extract.slice(0, EXTRACT_MAX_CHARS);
+  const lastBoundary = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('.\n'));
+  return lastBoundary > EXTRACT_MAX_CHARS * 0.6
+    ? slice.slice(0, lastBoundary + 1)
+    : slice;
+}
+
 type ImageUpsertResult = {
   id: number;
   url: string;

@@ -3,6 +3,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { cardBatchResponseSchema, type Card } from '@knowra/shared';
 import { getDeviceId } from '@/lib/device';
 import { getTopicPrefs } from '@/lib/topicPrefs';
+import { readFeedCache, writeFeedCache } from '@/lib/feedCache';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -17,16 +18,29 @@ type FeedState =
   | { kind: 'error'; message: string }
   | { kind: 'ready' };
 
+// Heterogeneous feed item — the pager moves through these one at a time.
+// Card items render as the normal article view; nudge items render as
+// the in-stream Wikipedia donation prompt (product spec §4.11) or any
+// future card-shaped interrupt (quiz cards, etc.).
+export type FeedItem =
+  | { kind: 'card'; key: string; card: Card }
+  | { kind: 'nudge'; key: string; nudgeKind: 'donation' };
+
 export type CardFeed = {
   state: FeedState;
-  current: Card | undefined;
-  next: Card | undefined;
-  prev: Card | undefined;
+  current: FeedItem | undefined;
+  next: FeedItem | undefined;
+  prev: FeedItem | undefined;
   canGoBack: boolean;
   advance: () => void;
   goBack: () => void;
   retry: () => void;
   insertAfterCurrent: (cards: Card[]) => number;
+  // Splice a single nudge item into the buffer immediately after the
+  // current position. Returns true if a nudge was inserted, false if
+  // there's already a nudge ahead within the next few slots (avoids
+  // back-to-back nudges if the caller double-fires).
+  injectNudgeAfterCurrent: (nudgeKind: 'donation') => boolean;
 };
 
 function endpointFor(feedType: FeedType, count: number): string {
@@ -61,8 +75,20 @@ async function fetchBatch(feedType: FeedType, count: number): Promise<Card[]> {
   return parsed.cards;
 }
 
+// Wrap a fetched card batch into FeedItems. Pure helper — no state.
+function toCardItems(cards: Card[]): FeedItem[] {
+  return cards.map((card) => ({ kind: 'card' as const, key: card.articleId, card }));
+}
+
+// Monotonic nudge id so back-to-back injections never collide as React keys.
+let _nudgeSeq = 0;
+function nextNudgeKey(kind: 'donation'): string {
+  _nudgeSeq += 1;
+  return `nudge:${kind}:${_nudgeSeq}`;
+}
+
 export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
-  const [cards, setCards] = useState<Card[]>([]);
+  const [items, setItems] = useState<FeedItem[]>([]);
   const [index, setIndex] = useState(0);
   const [state, setState] = useState<FeedState>({ kind: 'loading' });
   const refilling = useRef(false);
@@ -72,17 +98,62 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
   const activeFeed = useRef<FeedType>(feedType);
 
   const initialLoad = useCallback(async () => {
-    setState({ kind: 'loading' });
-    try {
-      const batch = await fetchBatch(feedType, INITIAL_BATCH);
-      setCards(batch);
+    // Local-first: try the cache before the network. On hit, we paint
+    // instantly and the network fetch becomes a background refresh
+    // instead of a blocking dependency. On miss, fall through to the
+    // loading skeleton like before.
+    const cached = await readFeedCache(feedType);
+    if (cached && cached.length > 0) {
+      setItems(toCardItems(cached));
       setIndex(0);
       setState({ kind: 'ready' });
+    } else {
+      setState({ kind: 'loading' });
+    }
+
+    try {
+      const batch = await fetchBatch(feedType, INITIAL_BATCH);
+      // The user may have switched feeds while we were waiting on the
+      // network — bail without touching the visible state.
+      if (activeFeed.current !== feedType) return;
+
+      if (cached && cached.length > 0) {
+        // Cache hit: keep what the user is reading, append fresh cards
+        // dedup'd against the cache. Refill logic will keep the buffer
+        // topped up from there.
+        setItems((prev) => {
+          const seen = new Set(
+            prev
+              .filter(
+                (it): it is Extract<FeedItem, { kind: 'card' }> => it.kind === 'card',
+              )
+              .map((it) => it.card.articleId),
+          );
+          const fresh = batch.filter((c) => !seen.has(c.articleId));
+          return fresh.length > 0 ? [...prev, ...toCardItems(fresh)] : prev;
+        });
+      } else {
+        // Cache miss path: this is the first-ever load (or post-clear).
+        // Replace the empty buffer with the fresh batch.
+        setItems(toCardItems(batch));
+        setIndex(0);
+        setState({ kind: 'ready' });
+      }
+
+      // Always update the cache snapshot with whatever the server just
+      // returned, so the *next* cold start gets the most recent picks.
+      // Fire-and-forget; cache write failure is silent.
+      void writeFeedCache(feedType, batch);
     } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      });
+      // If we had a cache hit, swallow the network failure — the user
+      // still sees content and a future refill will retry. Only when
+      // there's no cache do we show the error screen.
+      if (!cached || cached.length === 0) {
+        setState({
+          kind: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }, [feedType]);
 
@@ -93,19 +164,24 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
 
   // Prefetch the next card's hero image so the swipe-up reveal is
   // instant. expo-image dedupes by URL, so calling this on every render
-  // when `index` changes is safe and cheap.
+  // when `index` changes is safe and cheap. Nudge items have no image,
+  // so we skip them.
   useEffect(() => {
-    const next = cards[index + 1];
-    if (next?.image?.url) {
-      void ExpoImage.prefetch(next.image.url);
+    const next = items[index + 1];
+    if (next?.kind === 'card' && next.card.image?.url) {
+      void ExpoImage.prefetch(next.card.image.url);
     }
-  }, [cards, index]);
+  }, [items, index]);
 
-  // Refill when running low on lookahead.
+  // Refill when running low on lookahead. Only counts card items toward
+  // the threshold so a nudge ahead of the current position doesn't
+  // suppress the refill.
   useEffect(() => {
     if (state.kind !== 'ready') return;
-    const remainingAhead = cards.length - 1 - index;
-    if (remainingAhead > REFILL_TRIGGER) return;
+    const cardsAhead = items
+      .slice(index + 1)
+      .filter((it) => it.kind === 'card').length;
+    if (cardsAhead > REFILL_TRIGGER) return;
     if (refilling.current) return;
     refilling.current = true;
     const feedAtStart = activeFeed.current;
@@ -118,10 +194,14 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
         // already in our buffer (trending in particular, since the
         // most-read pool repeats). Without this the user sees the same
         // article twice on consecutive swipes.
-        setCards((prev) => {
-          const seen = new Set(prev.map((c) => c.articleId));
+        setItems((prev) => {
+          const seen = new Set(
+            prev
+              .filter((it): it is Extract<FeedItem, { kind: 'card' }> => it.kind === 'card')
+              .map((it) => it.card.articleId),
+          );
           const fresh = batch.filter((c) => !seen.has(c.articleId));
-          return fresh.length > 0 ? [...prev, ...fresh] : prev;
+          return fresh.length > 0 ? [...prev, ...toCardItems(fresh)] : prev;
         });
       } catch {
         // Quiet failure — user still has the current buffer. Next swipe
@@ -130,7 +210,7 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
         refilling.current = false;
       }
     })();
-  }, [cards.length, index, state.kind]);
+  }, [items, index, state.kind]);
 
   const advance = useCallback(() => {
     setIndex((i) => Math.min(i + 1, Number.MAX_SAFE_INTEGER));
@@ -151,14 +231,46 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
     (newCards: Card[]): number => {
       if (newCards.length === 0) return 0;
       let inserted = 0;
-      setCards((prev) => {
-        const existing = new Set(prev.map((c) => c.articleId));
+      setItems((prev) => {
+        const existing = new Set(
+          prev
+            .filter((it): it is Extract<FeedItem, { kind: 'card' }> => it.kind === 'card')
+            .map((it) => it.card.articleId),
+        );
         const fresh = newCards.filter((c) => !existing.has(c.articleId));
         inserted = fresh.length;
         if (fresh.length === 0) return prev;
-        return [...prev.slice(0, index + 1), ...fresh, ...prev.slice(index + 1)];
+        return [
+          ...prev.slice(0, index + 1),
+          ...toCardItems(fresh),
+          ...prev.slice(index + 1),
+        ];
       });
       return inserted;
+    },
+    [index],
+  );
+
+  /**
+   * Insert one nudge slot immediately after the current position.
+   * Guards against back-to-back nudges: if any of the next 3 slots is
+   * already a nudge, we no-op and return false.
+   */
+  const injectNudgeAfterCurrent = useCallback(
+    (nudgeKind: 'donation'): boolean => {
+      let injected = false;
+      setItems((prev) => {
+        const lookahead = prev.slice(index + 1, index + 4);
+        if (lookahead.some((it) => it.kind === 'nudge')) return prev;
+        const nudge: FeedItem = {
+          kind: 'nudge',
+          key: nextNudgeKey(nudgeKind),
+          nudgeKind,
+        };
+        injected = true;
+        return [...prev.slice(0, index + 1), nudge, ...prev.slice(index + 1)];
+      });
+      return injected;
     },
     [index],
   );
@@ -166,15 +278,25 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
   return useMemo(
     () => ({
       state,
-      current: cards[index],
-      next: cards[index + 1],
-      prev: index > 0 ? cards[index - 1] : undefined,
+      current: items[index],
+      next: items[index + 1],
+      prev: index > 0 ? items[index - 1] : undefined,
       canGoBack: index > 0,
       advance,
       goBack,
       retry: initialLoad,
       insertAfterCurrent,
+      injectNudgeAfterCurrent,
     }),
-    [state, cards, index, advance, goBack, initialLoad, insertAfterCurrent],
+    [
+      state,
+      items,
+      index,
+      advance,
+      goBack,
+      initialLoad,
+      insertAfterCurrent,
+      injectNudgeAfterCurrent,
+    ],
   );
 }

@@ -77,6 +77,22 @@ export const cardBatchResponseSchema = z.object({
 
 export type CardBatchResponse = z.infer<typeof cardBatchResponseSchema>;
 
+// Full-article AI summary served by GET /api/cards/[wikiId]/summary.
+// `source` distinguishes the LLM-written 300-word summary from the
+// fallback path (the Wikipedia extract, used when LLM generation
+// errors out so the reader is never empty).
+export const articleSummaryResponseSchema = z.object({
+  wikiId: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  source: z.enum(['llm', 'extract']),
+  attribution: z.string(),
+  // Null when source is 'extract' (no LLM call happened) or when we
+  // returned an existing row that pre-dates the timestamp column.
+  generatedAt: z.string().datetime().nullable(),
+});
+export type ArticleSummaryResponse = z.infer<typeof articleSummaryResponseSchema>;
+
 // Search result — lightweight (no upsert, no hook generation), used by
 // the search modal's autocomplete list.
 export const searchResultSchema = z.object({

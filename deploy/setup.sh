@@ -76,9 +76,22 @@ echo "==> Installing Caddyfile"
 cp "${APP_DIR}/deploy/Caddyfile" /etc/caddy/Caddyfile
 systemctl reload caddy || systemctl restart caddy
 
-echo "==> Installing systemd unit"
+echo "==> Installing systemd units (web service + digest cron timer)"
 cp "${APP_DIR}/deploy/knowra-web.service" /etc/systemd/system/knowra-web.service
+cp "${APP_DIR}/deploy/knowra-digest-cron.service" /etc/systemd/system/knowra-digest-cron.service
+cp "${APP_DIR}/deploy/knowra-digest-cron.timer" /etc/systemd/system/knowra-digest-cron.timer
+# The runner script lives inside the repo (already on disk after the
+# clone above) — just make sure it's executable.
+chmod +x "${APP_DIR}/deploy/run-daily-digest.sh"
 systemctl daemon-reload
+
+# Enable the timer so it survives reboots. We don't `--now` it here —
+# the env file may not have CRON_SECRET filled in yet on first run, and
+# firing the timer immediately would log a 401. The README instructs
+# the operator to `systemctl start knowra-digest-cron.timer` after
+# editing .env. If the timer is already enabled (re-running setup), this
+# is a no-op.
+systemctl enable knowra-digest-cron.timer >/dev/null
 
 # Allow the deploy user to restart the service without a password —
 # `deploy.sh` runs as the knowra user and needs this for a hands-off deploy.
@@ -93,23 +106,30 @@ cat <<EOM
 ✓ Bootstrap complete.
 
 Next steps:
-  1. Edit /opt/knowra/.env (DATABASE_URL, ANTHROPIC_API_KEY, CF_IMAGES_*, …)
+  1. Edit /opt/knowra/.env (DATABASE_URL, ANTHROPIC_API_KEY, CRON_SECRET, …)
        sudo -u ${DEPLOY_USER} nano ${APP_DIR}/.env
+     Generate a CRON_SECRET with:  openssl rand -base64 32
 
   2. Build + start the app for the first time:
        sudo -u ${DEPLOY_USER} bash ${APP_DIR}/deploy/deploy.sh
        sudo systemctl enable --now knowra-web
 
-  3. Point DNS:
+  3. Start the daily-digest timer (only after CRON_SECRET is set):
+       sudo systemctl start knowra-digest-cron.timer
+       systemctl list-timers knowra-digest-cron.timer
+
+  4. Point DNS:
        knowra.space    A     <this VPS IP>
        www.knowra.space A     <this VPS IP>
 
-  4. Verify (after DNS propagates, ~5 min):
+  5. Verify (after DNS propagates, ~5 min):
        curl https://knowra.space/api/health
        → should return {"ok":true,"service":"knowra-web",...}
 
 Logs:
   journalctl -u knowra-web -f
+  journalctl -u knowra-digest-cron -n 20
   sudo tail -f /var/log/caddy/knowra-access.log
+  sudo tail -f /var/log/knowra/digest.log
 
 EOM
