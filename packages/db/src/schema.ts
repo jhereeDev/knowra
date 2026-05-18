@@ -85,6 +85,9 @@ export const articles = pgTable(
 // =====================================================================
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  // Clerk user id (e.g. "user_2abc..."). Nullable for legacy / magic-link
+  // accounts; primary identity for accounts created via Clerk OAuth.
+  clerkUserId: text('clerk_user_id').unique(),
   email: citext('email').unique(),
   name: text('name'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
@@ -93,6 +96,11 @@ export const users = pgTable('users', {
   lang: text('lang').default('en'),
   embedding: vector('embedding', { dimensions: 1536 }),
   embeddingUpdatedAt: timestamp('embedding_updated_at', { withTimezone: true }),
+  // Streak state — synced from the device's local SecureStore copy on
+  // sign-in. The device remains source-of-truth for the live streak; this
+  // is what gets pulled back on a fresh device.
+  streakCount: integer('streak_count').default(0),
+  streakLastDay: text('streak_last_day'),
 });
 
 // =====================================================================

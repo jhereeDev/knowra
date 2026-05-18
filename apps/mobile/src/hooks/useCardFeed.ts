@@ -4,6 +4,7 @@ import { cardBatchResponseSchema, type Card } from '@knowra/shared';
 import { getDeviceId } from '@/lib/device';
 import { getTopicPrefs } from '@/lib/topicPrefs';
 import { readFeedCache, writeFeedCache } from '@/lib/feedCache';
+import { dueQuizzes, type QuizRecord } from '@/lib/quizzes';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -24,7 +25,8 @@ type FeedState =
 // future card-shaped interrupt (quiz cards, etc.).
 export type FeedItem =
   | { kind: 'card'; key: string; card: Card }
-  | { kind: 'nudge'; key: string; nudgeKind: 'donation' };
+  | { kind: 'nudge'; key: string; nudgeKind: 'donation' }
+  | { kind: 'quiz'; key: string; record: QuizRecord };
 
 export type CardFeed = {
   state: FeedState;
@@ -80,6 +82,28 @@ function toCardItems(cards: Card[]): FeedItem[] {
   return cards.map((card) => ({ kind: 'card' as const, key: card.articleId, card }));
 }
 
+// Interleave quiz items into a card list at every 3rd slot starting at
+// position 1. Result: [card, quiz?, card, card, quiz?, card, card, quiz?, …].
+// If `quizzes` is empty, returns the cards unchanged. If it has more
+// quizzes than slots, the overflow is dropped — they remain in the SRS
+// store and will be picked up next session.
+function interleaveQuizzes(cards: FeedItem[], quizzes: QuizRecord[]): FeedItem[] {
+  if (quizzes.length === 0) return cards;
+  const out: FeedItem[] = [];
+  let qi = 0;
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    if (card) out.push(card);
+    // Inject after positions 0, 3, 6, …
+    if (i % 3 === 0 && qi < quizzes.length) {
+      const q = quizzes[qi]!;
+      out.push({ kind: 'quiz', key: `quiz:${q.articleId}:${q.attempts.length}`, record: q });
+      qi += 1;
+    }
+  }
+  return out;
+}
+
 // Monotonic nudge id so back-to-back injections never collide as React keys.
 let _nudgeSeq = 0;
 function nextNudgeKey(kind: 'donation'): string {
@@ -112,7 +136,10 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
     }
 
     try {
-      const batch = await fetchBatch(feedType, INITIAL_BATCH);
+      const [batch, dueQ] = await Promise.all([
+        fetchBatch(feedType, INITIAL_BATCH),
+        dueQuizzes(),
+      ]);
       // The user may have switched feeds while we were waiting on the
       // network — bail without touching the visible state.
       if (activeFeed.current !== feedType) return;
@@ -134,8 +161,12 @@ export function useCardFeed(feedType: FeedType = 'random'): CardFeed {
         });
       } else {
         // Cache miss path: this is the first-ever load (or post-clear).
-        // Replace the empty buffer with the fresh batch.
-        setItems(toCardItems(batch));
+        // Replace the empty buffer with the fresh batch + any due quizzes
+        // interleaved at every-3rd position. Quizzes only inject on cold
+        // boot — the refill path stays pure-cards, so users don't get a
+        // surprise quiz mid-doom-scroll.
+        const interleaved = interleaveQuizzes(toCardItems(batch), dueQ);
+        setItems(interleaved);
         setIndex(0);
         setState({ kind: 'ready' });
       }

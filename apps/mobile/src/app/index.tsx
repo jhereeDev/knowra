@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, Text, View } from 'react-native';
+import { Redirect } from 'expo-router';
 import { Feather as RawFeather } from '@expo/vector-icons';
 import type { StyleProp, TextStyle } from 'react-native';
 
@@ -21,13 +22,14 @@ import { VerticalPager } from '@/components/VerticalPager';
 import { CardView } from '@/components/CardView';
 import { CardSkeleton } from '@/components/CardSkeleton';
 import { DonationNudge } from '@/components/DonationNudge';
+import { QuizCardView } from '@/components/QuizCardView';
 import { OnboardingSwipeHint } from '@/components/OnboardingSwipeHint';
 import { SkipUndoToast } from '@/components/SkipUndoToast';
 import { Toast } from '@/components/Toast';
 import { flush, track } from '@/lib/events';
 import { useSavedIds } from '@/lib/savedArticles';
 import { consumeNextMilestone, useStreak, type Milestone } from '@/lib/streak';
-import { markSwipeSeen, useHasSeenSwipeHint } from '@/lib/onboarding';
+import { markSwipeSeen, useHasCalibrated, useHasSeenSwipeHint } from '@/lib/onboarding';
 import { bumpImpression } from '@/lib/nudgeCounter';
 import { StreakMilestone } from '@/components/StreakMilestone';
 
@@ -40,6 +42,7 @@ const TAB_ORDER: FeedType[] = ['foryou', 'trending', 'today', 'random'];
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 export default function FeedScreen() {
+  const calibrated = useHasCalibrated();
   const [feedType, setFeedType] = useState<FeedType>('random');
   const feed = useCardFeed(feedType);
   const insets = useSafeAreaInsets();
@@ -47,6 +50,14 @@ export default function FeedScreen() {
   const savedIds = useSavedIds();
   const streak = useStreak();
   const hasSeenSwipeHint = useHasSeenSwipeHint();
+
+  // First-launch gate. While the SecureStore flag is loading we render
+  // nothing — the native splash is still over the top, so a blank tree
+  // here is invisible. Once loaded:
+  //   - false → route to /onboarding/topics
+  //   - true  → fall through to the feed
+  if (calibrated === null) return null;
+  if (calibrated === false) return <Redirect href={'/onboarding/topics' as never} />;
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [skipUndoVisible, setSkipUndoVisible] = useState(false);
   const lastImpressionId = useRef<string | null>(null);
@@ -159,13 +170,15 @@ export default function FeedScreen() {
         canGoBack={feed.canGoBack}
         onAdvance={handleAdvance}
         onGoBack={handleGoBack}
-        renderItem={(item) =>
-          item.kind === 'card' ? (
-            <CardView card={item.card} onInjectRelated={feed.insertAfterCurrent} />
-          ) : (
-            <DonationNudge onDismiss={feed.advance} />
-          )
-        }
+        renderItem={(item) => {
+          if (item.kind === 'card') {
+            return <CardView card={item.card} onInjectRelated={feed.insertAfterCurrent} />;
+          }
+          if (item.kind === 'quiz') {
+            return <QuizCardView record={item.record} onContinue={feed.advance} />;
+          }
+          return <DonationNudge onDismiss={feed.advance} />;
+        }}
         keyExtractor={(item) => item.key}
         // Pull-to-refresh on the feed: only fires when we're at the start
         // (no `prev`) and the user pulls down past 30% screen height.
@@ -254,6 +267,20 @@ export default function FeedScreen() {
             className="h-9 w-9 items-center justify-center rounded-full bg-knowverse/70"
           >
             <Feather name="search" size={16} color="#e7e9ff" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/map' as never)}
+            accessibilityLabel="Explore by place"
+            className="h-9 w-9 items-center justify-center rounded-full bg-knowverse/70"
+          >
+            <Feather name="map" size={16} color="#e7e9ff" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/knowverse' as never)}
+            accessibilityLabel="Open your Knowverse map"
+            className="h-9 w-9 items-center justify-center rounded-full bg-knowverse/70"
+          >
+            <Feather name="star" size={16} color="#e7e9ff" />
           </Pressable>
           <Pressable
             onPress={() => router.push('/saved')}

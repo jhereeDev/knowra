@@ -8,8 +8,22 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
+import { ClerkProvider as RawClerkProvider } from '@clerk/clerk-expo';
 import { recordAppOpen } from '@/lib/streak';
 import { registerForPushNotifications } from '@/lib/notifications';
+import { clerkTokenCache, type ClerkTokenCache } from '@/lib/clerkTokenCache';
+
+// Recurring React-19 JSX-class workaround. Clerk's own component
+// types don't yet satisfy React 19's stricter JSX constraint and
+// reject the `children` prop. Casting to a plain function-component
+// type preserves runtime behavior. See CardView / expo-image for
+// the same pattern.
+type ClerkProviderProps = {
+  publishableKey: string;
+  tokenCache: ClerkTokenCache;
+  children: React.ReactNode;
+};
+const ClerkProvider = RawClerkProvider as unknown as React.ComponentType<ClerkProviderProps>;
 
 // Keep the native splash visible until React has actually committed the
 // first frame of the feed (cached cards if we have them, skeleton if not).
@@ -21,12 +35,13 @@ import { registerForPushNotifications } from '@/lib/notifications';
 // the type signature wants a `.catch` to consume the unhandled rejection.
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// NOTE: Clerk auth (`@clerk/clerk-expo`) is intentionally NOT imported
-// here. Its dependency `expo-auth-session` requires the `ExpoCryptoAES`
-// native module which is not bundled in Expo Go SDK 54. To enable Clerk
-// sign-in, build a custom dev client with EAS (`eas build --profile
-// development`) and restore the ClerkProvider wrapper. See CHECKPOINT
-// "2026-05-17 — Clerk auth + push scaffolding".
+// Clerk is wired here behind a publishable-key env gate. When the key
+// is absent, ClerkProvider is bypassed entirely and the app runs
+// anonymously — preserving the brand promise that an account is
+// optional. ExpoCryptoAES (the historical Expo Go blocker) ships with
+// the EAS-built dev/production clients; only Expo Go itself can't
+// resolve it.
+const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 // Streak threshold at which we earn the right to ask for push permission.
 // Per product spec §6: never ask on session 1. By day 3 the user has
@@ -90,7 +105,7 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  return (
+  const tree = (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#05071a' }}>
       <SafeAreaProvider>
         <StatusBar style="light" />
@@ -102,5 +117,15 @@ export default function RootLayout() {
         />
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+
+  if (!CLERK_PUBLISHABLE_KEY) return tree;
+  return (
+    <ClerkProvider
+      publishableKey={CLERK_PUBLISHABLE_KEY}
+      tokenCache={clerkTokenCache}
+    >
+      {tree}
+    </ClerkProvider>
   );
 }

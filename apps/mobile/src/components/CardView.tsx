@@ -41,6 +41,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Card } from '@knowra/shared';
 import { track } from '@/lib/events';
 import { toggleSaved, useSavedIds } from '@/lib/savedArticles';
+import { ensureQuizForArticle, removeQuizForArticle } from '@/lib/quizzes';
+import { recordKnowverseStar } from '@/lib/knowverse';
 import { CollectionPicker } from '@/components/CollectionPicker';
 import { ArticleReader } from '@/components/ArticleReader';
 import { pressAndHold, tapImpact } from '@/lib/haptics';
@@ -114,7 +116,21 @@ export function CardView({
   const onToggleSave = async () => {
     tapImpact();
     const nowSaved = await toggleSaved(card);
-    if (nowSaved) track(card.articleId, 'save');
+    if (nowSaved) {
+      track(card.articleId, 'save');
+      // Fire-and-forget: generates one MCQ on the backend and stores
+      // it locally for spaced-repetition surfacing later. Never blocks
+      // the save UX, never errors visibly.
+      void ensureQuizForArticle(card);
+      // Add to the Knowverse constellation. Saving is the strongest
+      // intent signal we have without auth, so it's the natural anchor
+      // for the personal map.
+      void recordKnowverseStar(card);
+    } else {
+      // Unsave → drop the quiz too. Otherwise an old SRS schedule keeps
+      // surfacing the article the user explicitly removed.
+      void removeQuizForArticle(card.articleId);
+    }
   };
 
   const openPicker = () => {

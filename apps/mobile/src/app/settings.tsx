@@ -1,13 +1,13 @@
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { ALL_TOPICS, toggleTopic, useTopicPrefs, type Topic } from '@/lib/topicPrefs';
 import { useStreak } from '@/lib/streak';
 import { tapImpact } from '@/lib/haptics';
+import { resetSyncState } from '@/lib/sync';
 
-// Clerk's useAuth/useUser are not imported here for the same reason
-// _layout.tsx skips ClerkProvider — see that file for the dev-client
-// note. AccountSection will return once Clerk is reinstated.
+const CLERK_ENABLED = Boolean(process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 export default function SettingsScreen() {
   const selected = useTopicPrefs();
@@ -26,7 +26,8 @@ export default function SettingsScreen() {
         }}
       />
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}>
-        {/* Account — disabled in Expo Go; reactivates with a dev client */}
+        {/* Account — only rendered when Clerk is configured. */}
+        {CLERK_ENABLED && <AccountSection />}
 
         {/* Topic preferences */}
         <Section title="Topics you like" hint="A nudge for the For You feed. Toggle any.">
@@ -107,6 +108,64 @@ function Section({
       </View>
       {children}
     </View>
+  );
+}
+
+function AccountSection() {
+  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const { user } = useUser();
+  const router = useRouter();
+
+  // Clerk's `isLoaded` flips true once the session resource finishes
+  // hydrating from the token cache. Render nothing in the meantime so
+  // the Settings page doesn't flash a stale "Sign in" pill while a
+  // returning user's session is still loading.
+  if (!isLoaded) return null;
+
+  const email = user?.primaryEmailAddress?.emailAddress;
+
+  return (
+    <Section title="Account">
+      <View className="px-5 pt-3">
+        {isSignedIn ? (
+          <>
+            <Text className="text-knowverse-star text-sm">
+              Signed in as {email ?? user?.firstName ?? 'your account'}
+            </Text>
+            <Text className="text-knowverse-star/50 mt-1 text-xs">
+              Your saves, collections, and streak sync to this account on every
+              change.
+            </Text>
+            <Pressable
+              onPress={() => {
+                void (async () => {
+                  await signOut();
+                  await resetSyncState();
+                })();
+              }}
+              className="mt-4 self-start rounded-full border border-knowverse-star/30 px-4 py-2"
+            >
+              <Text className="text-knowverse-star/80 text-sm">Sign out</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text className="text-knowverse-star/70 text-sm">
+              Sign in to sync your saves and streak across devices. Optional —
+              Knowra works fully without an account.
+            </Text>
+            <Pressable
+              onPress={() => router.push('/sign-in')}
+              className="bg-knowverse-star mt-4 self-start rounded-full px-5 py-2"
+            >
+              <Text className="text-knowverse-deep text-sm font-semibold">
+                Sign in
+              </Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </Section>
   );
 }
 

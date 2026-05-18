@@ -23,6 +23,7 @@ import { tapImpact } from '@/lib/haptics';
 import { getDeviceId } from '@/lib/device';
 import { fetchArticleSummary } from '@/lib/articleSummary';
 import { showToast } from '@/lib/toast';
+import { recordKnowverseEdge, recordKnowverseStar } from '@/lib/knowverse';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -188,6 +189,18 @@ export function ArticleReader({
       }
       const json: unknown = await res.json();
       const parsed = cardBatchResponseSchema.parse(json);
+      // Knowverse: each related card becomes a star, with an edge from
+      // the article the user was reading to each new related article.
+      // The source article must already be a star for the edge to land;
+      // we promote it here in case the user reached the reader without
+      // having saved it first.
+      void recordKnowverseStar(card);
+      for (const related of parsed.cards) {
+        void (async () => {
+          await recordKnowverseStar(related);
+          await recordKnowverseEdge(card.articleId, related.articleId);
+        })();
+      }
       onMoreLikeThis(parsed.cards);
       onClose();
     } catch {
