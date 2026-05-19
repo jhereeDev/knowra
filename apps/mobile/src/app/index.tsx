@@ -23,6 +23,7 @@ import { CardView } from '@/components/CardView';
 import { CardSkeleton } from '@/components/CardSkeleton';
 import { DonationNudge } from '@/components/DonationNudge';
 import { QuizCardView } from '@/components/QuizCardView';
+import { MiniAudioPlayer } from '@/components/MiniAudioPlayer';
 import { OnboardingSwipeHint } from '@/components/OnboardingSwipeHint';
 import { SkipUndoToast } from '@/components/SkipUndoToast';
 import { Toast } from '@/components/Toast';
@@ -221,6 +222,7 @@ export default function FeedScreen() {
 
       <StreakMilestone milestone={milestone} onDismiss={() => setMilestone(null)} />
       <Toast bottom={insets.bottom + 84} />
+      <MiniAudioPlayer />
 
       {/* Top chrome: two stacked rows — tab pills on top, actions on
           a second row. Stacking gives both rows full screen width;

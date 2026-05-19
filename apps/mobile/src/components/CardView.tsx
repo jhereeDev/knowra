@@ -43,6 +43,7 @@ import { track } from '@/lib/events';
 import { toggleSaved, useSavedIds } from '@/lib/savedArticles';
 import { ensureQuizForArticle, removeQuizForArticle } from '@/lib/quizzes';
 import { recordKnowverseStar } from '@/lib/knowverse';
+import { playCard, useAudioState } from '@/lib/audio';
 import { CollectionPicker } from '@/components/CollectionPicker';
 import { ArticleReader } from '@/components/ArticleReader';
 import { pressAndHold, tapImpact } from '@/lib/haptics';
@@ -321,6 +322,7 @@ export function CardView({
           active={isSaved}
         />
         <ActionButton icon="share-2" label="Share" onPress={() => void onShare()} />
+        <ListenButton card={card} />
         <ActionButton icon="external-link" label="Open" onPress={onGoDeeper} />
       </View>
 
@@ -399,5 +401,27 @@ function ActionButton({
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+// "Listen" entry point. When playback is on this card, swap to a
+// pause-indicating affordance so the user knows the audio is theirs
+// (without claiming the whole mini player UI which lives at the feed
+// root). Tap kicks off (or resumes) narration for THIS card; the
+// global audio singleton tears down any previously-playing card.
+function ListenButton({ card }: { card: Card }) {
+  const audio = useAudioState();
+  const isThisCard = audio.card?.articleId === card.articleId;
+  const isPlayingThis = isThisCard && audio.status === 'playing';
+  const isLoadingThis = isThisCard && audio.status === 'loading';
+  const label = isLoadingThis ? 'Loading' : isPlayingThis ? 'Playing' : 'Listen';
+  const icon = isLoadingThis ? 'loader' : isPlayingThis ? 'volume-2' : 'headphones';
+  return (
+    <ActionButton
+      icon={icon}
+      label={label}
+      onPress={() => void playCard(card)}
+      active={isThisCard && (isPlayingThis || isLoadingThis)}
+    />
   );
 }

@@ -5,10 +5,10 @@ import { ALL_TOPICS, toggleTopic, useTopicPrefs, type Topic } from '@/lib/topicP
 import { useStreak } from '@/lib/streak';
 import { tapImpact } from '@/lib/haptics';
 
-// DO NOT static-import @clerk/clerk-expo here — see comment at the top
-// of _layout.tsx. We render AccountSection via a tiny lazy wrapper so
-// the Clerk module body only loads on devices that have the env key.
-const CLERK_ENABLED = Boolean(process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY);
+// Clerk auth is FORCE-DISABLED — see the top of _layout.tsx for the
+// reason and the steps to re-enable. The AccountSection is never
+// rendered, so the Clerk module body never loads on the device.
+const CLERK_ENABLED = false;
 
 function LazyAccountSection() {
   // require() inside a function body is evaluated lazily by Metro, so

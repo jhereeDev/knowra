@@ -30,13 +30,21 @@ import { registerForPushNotifications } from '@/lib/notifications';
 // the type signature wants a `.catch` to consume the unhandled rejection.
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// Clerk is wired here behind a publishable-key env gate. When the key
-// is absent, ClerkProvider is bypassed entirely and the app runs
-// anonymously — preserving the brand promise that an account is
-// optional. ExpoCryptoAES (the historical Expo Go blocker) ships with
-// the EAS-built dev/production clients; only Expo Go itself can't
-// resolve it.
-const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+// Clerk auth is FORCE-DISABLED for now. The native module chain
+// (`@clerk/clerk-expo` → `expo-auth-session` → `ExpoCryptoAES`) was
+// crashing the app on launch in production iOS builds, and we haven't
+// fully configured the Clerk dashboard (Native API toggle, OAuth
+// providers) anyway. To re-enable later:
+//   1. Set `CLERK_FORCE_DISABLE = false` below
+//   2. Verify `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` is set in EAS env
+//   3. Verify Clerk Dashboard → Native API is ON
+//   4. Verify Apple + Google OAuth providers are configured
+// All other Knowra features work fully anonymously without auth, so
+// disabling here is non-destructive.
+const CLERK_FORCE_DISABLE = true;
+const CLERK_PUBLISHABLE_KEY = CLERK_FORCE_DISABLE
+  ? undefined
+  : process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 // Streak threshold at which we earn the right to ask for push permission.
 // Per product spec §6: never ask on session 1. By day 3 the user has
