@@ -73,8 +73,10 @@ export async function POST(
     // Surface the real cause to the mobile error toast instead of a
     // generic Next.js 500. Most likely candidates: cache-dir mkdir
     // EACCES (VPS prep step skipped), DB connection failure, or an
-    // OpenAI fetch throw.
+    // OpenAI fetch throw. Log the full stack to the journal — the
+    // 120-char-truncated mobile toast usually clips the useful part.
     const message = err instanceof Error ? err.message : String(err);
+    console.error('[api/audio] unhandled', err);
     return NextResponse.json(
       { error: { code: 'audio_unhandled', message } },
       { status: 502 },

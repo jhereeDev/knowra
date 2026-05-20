@@ -43,7 +43,7 @@ import { track } from '@/lib/events';
 import { toggleSaved, useSavedIds } from '@/lib/savedArticles';
 import { ensureQuizForArticle, removeQuizForArticle } from '@/lib/quizzes';
 import { recordKnowverseStar } from '@/lib/knowverse';
-import { playCard, useAudioState } from '@/lib/audio';
+import { AUDIO_ENABLED, playCard, useAudioState } from '@/lib/audio';
 import { CollectionPicker } from '@/components/CollectionPicker';
 import { ArticleReader } from '@/components/ArticleReader';
 import { pressAndHold, tapImpact } from '@/lib/haptics';
@@ -322,7 +322,7 @@ export function CardView({
           active={isSaved}
         />
         <ActionButton icon="share-2" label="Share" onPress={() => void onShare()} />
-        <ListenButton card={card} />
+        {AUDIO_ENABLED && <ListenButton card={card} />}
         <ActionButton icon="external-link" label="Open" onPress={onGoDeeper} />
       </View>
 

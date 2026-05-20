@@ -4,6 +4,13 @@ import { generateAudioResponseSchema, type Card } from '@knowra/shared';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
+// Feature flag — flip to true once the VPS audio pipeline is verified
+// (cache dir provisioned, OPENAI_API_KEY set, 502s gone). When false,
+// the Listen button and the mini player are hidden so the feature is
+// fully invisible to the user. Keeps the audio module compiled so
+// re-enabling is a one-line change.
+export const AUDIO_ENABLED = false;
+
 // Singleton audio controller for Knowra. Only one card narrates at a
 // time; starting playback on a different card replaces the previous
 // player. Subscribers (the mini player, the Listen button) read the
