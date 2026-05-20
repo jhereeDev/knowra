@@ -51,6 +51,9 @@ export default function FeedScreen() {
   const savedIds = useSavedIds();
   const streak = useStreak();
   const hasSeenSwipeHint = useHasSeenSwipeHint();
+  const [milestone, setMilestone] = useState<Milestone | null>(null);
+  const [skipUndoVisible, setSkipUndoVisible] = useState(false);
+  const lastImpressionId = useRef<string | null>(null);
 
   // One-shot migration for users who upgraded from a pre-onboarding
   // build: anyone who already has saved articles or a streak going has
@@ -62,19 +65,6 @@ export default function FeedScreen() {
       void markCalibrated();
     }
   }, [calibrated, savedIds.size, streak.count]);
-
-  // First-launch gate. While the SecureStore flag is loading we render
-  // nothing — the native splash is still over the top, so a blank tree
-  // here is invisible. Once loaded:
-  //   - false (and no existing data) → route to /onboarding/topics
-  //   - true (or migrated above)     → fall through to the feed
-  if (calibrated === null) return null;
-  if (calibrated === false && savedIds.size === 0 && streak.count === 0) {
-    return <Redirect href={'/onboarding/topics' as never} />;
-  }
-  const [milestone, setMilestone] = useState<Milestone | null>(null);
-  const [skipUndoVisible, setSkipUndoVisible] = useState(false);
-  const lastImpressionId = useRef<string | null>(null);
 
   // When the streak count changes, see if we just crossed a milestone.
   // Consume returns the milestone exactly once across all launches.
@@ -115,6 +105,18 @@ export default function FeedScreen() {
     });
     return () => sub.remove();
   }, []);
+
+  // First-launch gate. ALL hooks above this point — early returns must
+  // sit below every hook so the count stays stable across renders. While
+  // the SecureStore flag is loading we render nothing; the native splash
+  // is still over the top, so a blank tree here is invisible. Once
+  // loaded:
+  //   - false (and no existing data) → route to /onboarding/topics
+  //   - true (or migrated above)     → fall through to the feed
+  if (calibrated === null) return null;
+  if (calibrated === false && savedIds.size === 0 && streak.count === 0) {
+    return <Redirect href={'/onboarding/topics' as never} />;
+  }
 
   const handleAdvance = (dwellMs: number) => {
     const current = feed.current;

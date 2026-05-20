@@ -7,7 +7,7 @@
 ## Current state
 
 **Last updated:** 2026-05-20
-**Updated by:** Claude (crash fix + audio narration + Clerk disable + Apple rejection batch)
+**Updated by:** Claude (onboarding hooks-order crash fix)
 **Phase:** Phase 3 — Personalization (per `06-roadmap-risks.md`)
 
 ### What exists
@@ -62,7 +62,7 @@
 
 ## Recommended next move
 
-1. **Verify 1.1.2 (10) boots clean in TestFlight.** Crash fix = Clerk hardcoded-off. If still crashes, the failure isn't auth-related and we bisect new code (most likely the onboarding redirect or quiz module).
+1. **Bump to 1.1.3 (build 11) and ship the hooks-order fix.** Build 10 still crashed post-onboarding — `apps/mobile/src/app/index.tsx` had `useState`/`useState`/`useRef` and four `useEffect`s declared *after* the `calibrated === null` and Redirect early returns. As `calibrated` transitions `null → true` after the user finishes the 3rd onboarding card, hook count jumps and React throws. Crash is permanent on relaunch (same null→true transition). Fixed by moving all hooks above the gate. **This was the real cause — not Clerk.** Build 10's Clerk-off change was still correct, but masked by this second bug.
 2. **Address the 5 ASC rejection items** (15 min total in the web UI).
 3. **Ship audio narration** — bump version → build 11 → submit. Needs `OPENAI_API_KEY` on VPS + `sudo mkdir -p /var/lib/knowra/audio && sudo chown knowra:knowra /var/lib/knowra/audio` first.
 4. **Wrapped-style monthly recap** — natural pairing with Knowverse for share-out posters.
@@ -79,6 +79,14 @@ _(All work on `main`. No open PRs.)_
 
 ### 2026-05-18 — Auth + onboarding + quiz + map + Knowverse batch ✅
 *(Detailed entry archived in `CHECKPOINT.history.md`.)*
+
+### 2026-05-20 — Onboarding hooks-order crash fix ✅
+Build 10 still crashed: user finished the 3rd onboarding card, the app crashed, and every subsequent launch crashed at startup.
+
+- **Root cause**: `apps/mobile/src/app/index.tsx` violated Rules of Hooks. `useState` (milestone), `useState` (skipUndoVisible), `useRef` (lastImpressionId), and four `useEffect`s were declared *after* the `if (calibrated === null) return null` and `<Redirect>` early returns. When `useHasCalibrated()` resolves from `null → true` (which happens once `markCalibrated()` flips during onboarding finish, and on every cold start from SecureStore), the hook count jumps from 8 → 12. React throws.
+- **Fix**: moved all hooks above the calibration gate. CLAUDE.md §4 already mandates this ("Hooks at the top, JSX at the bottom. No early returns *before* hooks") — drift caught.
+- **Why prior debugging missed this**: build 7/8/9 crashes traced to Clerk import-time + render-time issues, which were real and were correctly fixed. This bug was *also* present but masked behind the Clerk crash. With Clerk off in build 10, the next layer surfaced.
+- **Sentry would have caught this immediately**. Reinforcing the "Sentry before next big drop" recommendation.
 
 ### 2026-05-19 / 05-20 — Crash recovery + audio narration ✅
 Long debugging session. Build 7 (1.1.0) crashed at launch in TestFlight; iterated three builds to ship a clean one.
